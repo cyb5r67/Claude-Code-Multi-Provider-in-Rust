@@ -8,6 +8,9 @@ This is a Rust rewrite (axum + reqwest + serde + tracing) of the original
 [`simple-proxy.py`](https://gist.github.com/spideynolove/13785891385ed6916619ebb991b490b9)
 (FastAPI/httpx).
 
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for process-flow and module
+diagrams (Mermaid).
+
 ## How it works
 
 - Listens on `127.0.0.1:8787` (configurable).
