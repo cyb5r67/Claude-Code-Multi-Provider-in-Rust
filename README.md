@@ -82,6 +82,19 @@ Logging is controlled by `RUST_LOG` (default `info`), e.g. `RUST_LOG=debug`.
 | `src/proxy.rs`        | Router, `/v1/messages` forwarding, `/health`          |
 | `src/error.rs`        | `AppError` → HTTP status + JSON error body            |
 
+## Credits
+
+This project is a Rust port of
+[`simple-proxy.py`](https://gist.github.com/spideynolove/13785891385ed6916619ebb991b490b9)
+by **spideynolove**. The original is a FastAPI/httpx reverse proxy for routing
+Claude Code requests to multiple LLM providers; this project reimplements that
+functionality in Rust (axum + reqwest + serde + tracing) with additional
+changes. Credit for the original design and concept goes to the original author.
+See [NOTICE](NOTICE) for attribution details.
+
 ## License
 
-Licensed under the [Apache License, Version 2.0](LICENSE).
+Copyright 2026 Cyb5r LLC.
+
+Licensed under the [Apache License, Version 2.0](LICENSE). See [NOTICE](NOTICE)
+for attributions.

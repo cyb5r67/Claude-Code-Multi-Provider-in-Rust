@@ -1,0 +1,18 @@
+Claude Code Multi-Provider in Rust
+Copyright 2026 Cyb5r LLC
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+--------------------------------------------------------------------------------
+Attribution
+--------------------------------------------------------------------------------
+
+This project is a Rust port of "simple-proxy.py" by spideynolove, originally
+published as a public gist:
+
+    https://gist.github.com/spideynolove/13785891385ed6916619ebb991b490b9
+
+The original is a FastAPI/httpx reverse proxy for routing Claude Code requests
+to multiple LLM providers. This project reimplements that functionality in Rust
+(axum + reqwest + serde + tracing) with additional changes. Credit for the
+original design and concept goes to the original author.
