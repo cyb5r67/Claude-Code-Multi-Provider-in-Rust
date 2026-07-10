@@ -146,7 +146,10 @@ mod tests {
             cfg.providers["deepseek"].base_url,
             "https://api.deepseek.com/anthropic/v1/messages"
         );
-        assert_eq!(cfg.providers["openrouter"].api_key_env, "OPENROUTER_API_KEY");
+        assert_eq!(
+            cfg.providers["openrouter"].api_key_env,
+            "OPENROUTER_API_KEY"
+        );
     }
 
     #[test]

@@ -38,14 +38,11 @@ async fn health() -> Json<Value> {
 /// Receive a Claude Code request, choose the target provider (default or via an
 /// in-session `/model` command), and forward it upstream, streaming the response
 /// straight back to the client.
-async fn messages_proxy(
-    State(state): State<AppState>,
-    body: Bytes,
-) -> Result<Response, AppError> {
+async fn messages_proxy(State(state): State<AppState>, body: Bytes) -> Result<Response, AppError> {
     let cfg = &state.config;
 
-    let mut payload: Value = serde_json::from_slice(&body)
-        .map_err(|e| AppError::InvalidJson(e.to_string()))?;
+    let mut payload: Value =
+        serde_json::from_slice(&body).map_err(|e| AppError::InvalidJson(e.to_string()))?;
 
     // Start from the defaults; the request body may carry its own model.
     let mut provider_key = cfg.default.provider.clone();
@@ -107,9 +104,7 @@ async fn messages_proxy(
     let stream = upstream.bytes_stream();
     let mut response = Response::new(Body::from_stream(stream));
     *response.status_mut() = status;
-    response
-        .headers_mut()
-        .insert(CONTENT_TYPE, content_type);
+    response.headers_mut().insert(CONTENT_TYPE, content_type);
 
     Ok(response.into_response())
 }
