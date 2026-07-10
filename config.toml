@@ -1,0 +1,37 @@
+# claude-multi-proxy configuration.
+#
+# Point Claude Code at this proxy:
+#   export ANTHROPIC_BASE_URL="http://localhost:8787"
+#   export ANTHROPIC_API_KEY="dummy"
+#   claude
+#
+# Switch providers in-session with:  /model <provider>/<model>
+#   e.g.  /model deepseek/deepseek-chat
+
+[server]
+host = "127.0.0.1"
+port = 8787
+request_timeout_secs = 300
+
+[default]
+provider = "openrouter"
+model = "x-ai/grok-code-fast-1"
+
+[providers.deepseek]
+base_url = "https://api.deepseek.com/anthropic/v1/messages"
+api_key_env = "DEEPSEEK_API_KEY"
+
+[providers.zai]
+base_url = "https://api.z.ai/api/anthropic/v1/messages"
+api_key_env = "Z_AI_API_KEY"
+
+[providers.kimi]
+base_url = "https://api.moonshot.ai/anthropic/v1/messages"
+api_key_env = "KIMI_API_KEY"
+
+[providers.openrouter]
+# y-router runs on its OWN port. The original Python proxy pointed openrouter at
+# http://localhost:8787/v1/messages -- the proxy's own address -- which loops
+# back into itself infinitely. Run y-router on a separate port (e.g. 8788).
+base_url = "http://localhost:8788/v1/messages"
+api_key_env = "OPENROUTER_API_KEY"
