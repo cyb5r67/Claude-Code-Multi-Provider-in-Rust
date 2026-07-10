@@ -131,15 +131,10 @@ fn apply_strip(messages: &mut Vec<Value>, msg_index: usize, target: StripTarget)
 /// If `text` begins with a `/model <provider>/<model>` command, return the
 /// parsed command plus the remaining text (`None` when nothing else remains).
 fn extract_command(text: &str) -> Option<(ModelCommand, Option<String>)> {
-    let trimmed = text.trim();
-    if !trimmed.starts_with("/model ") {
-        return None;
-    }
-    let parts: Vec<&str> = trimmed.split_whitespace().collect();
-    if parts.len() != 2 {
-        return None;
-    }
-    let identifier = parts[1];
+    // The command must lead the message (ignoring leading whitespace). The
+    // identifier is the first token after `/model `; any following text is kept.
+    let rest = text.trim_start().strip_prefix("/model ")?;
+    let identifier = rest.split_whitespace().next()?;
     let (provider, model) = identifier.split_once('/')?;
     if provider.is_empty() || model.is_empty() {
         return None;
