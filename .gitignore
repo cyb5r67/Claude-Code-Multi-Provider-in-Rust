@@ -1,1 +1,4 @@
 /target
+
+# Local Claude Code settings (not for publication)
+/.claude/
