@@ -81,3 +81,7 @@ Logging is controlled by `RUST_LOG` (default `info`), e.g. `RUST_LOG=debug`.
 | `src/model_command.rs`| Parse & strip `/model provider/model` commands        |
 | `src/proxy.rs`        | Router, `/v1/messages` forwarding, `/health`          |
 | `src/error.rs`        | `AppError` → HTTP status + JSON error body            |
+
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE).

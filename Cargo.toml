@@ -3,7 +3,7 @@ name = "claude-multi-proxy"
 version = "0.1.0"
 edition = "2021"
 description = "Local reverse proxy routing Claude Code requests to multiple LLM providers with in-session /model switching"
-license = "MIT"
+license = "Apache-2.0"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
