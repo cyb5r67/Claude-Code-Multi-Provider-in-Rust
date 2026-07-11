@@ -115,18 +115,27 @@ async fn messages_proxy(State(state): State<AppState>, body: Bytes) -> Result<Re
         })?;
 
     let status = upstream.status();
-    if !status.is_success() {
-        tracing::warn!(provider = %provider_key, %status, "upstream returned error status");
-    }
-
-    // Preserve the upstream status and content-type, then stream the body
-    // through unbuffered (handles both streaming SSE and plain JSON responses).
     let content_type = upstream
         .headers()
         .get(CONTENT_TYPE)
         .cloned()
         .unwrap_or_else(|| "application/json".parse().unwrap());
 
+    // Error responses are small: buffer them so the body can be logged --
+    // otherwise a misconfigured upstream (wrong path, bad key, unknown model)
+    // is invisible from the proxy log -- then forward them unchanged.
+    if !status.is_success() {
+        let bytes = upstream.bytes().await.unwrap_or_default();
+        let preview = String::from_utf8_lossy(&bytes[..bytes.len().min(2048)]);
+        tracing::warn!(provider = %provider_key, %status, body = %preview, "upstream returned error status");
+        let mut response = Response::new(Body::from(bytes));
+        *response.status_mut() = status;
+        response.headers_mut().insert(CONTENT_TYPE, content_type);
+        return Ok(response.into_response());
+    }
+
+    // Preserve the upstream status and content-type, then stream the body
+    // through unbuffered (handles both streaming SSE and plain JSON responses).
     let stream = upstream.bytes_stream();
     let mut response = Response::new(Body::from_stream(stream));
     *response.status_mut() = status;

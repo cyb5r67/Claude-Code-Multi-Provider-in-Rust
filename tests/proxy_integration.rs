@@ -249,6 +249,38 @@ async fn non_provider_slash_model_passes_through_to_default() {
     assert_eq!(body, json!({"routed": "primary"}));
 }
 
+/// Upstream HTTP errors are forwarded with their original status and body
+/// (and logged with the body for diagnosability) -- never remapped.
+#[tokio::test]
+async fn upstream_error_status_and_body_pass_through() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(
+            ResponseTemplate::new(404)
+                .set_body_json(json!({"error": "Unexpected endpoint or method"})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let cfg = Config::from_toml_str(&config_toml(&server.uri(), &server.uri())).unwrap();
+    let app = proxy::router(build_state(cfg).unwrap());
+
+    let (status, body) = send(
+        app,
+        json!({
+            "model": "some-model",
+            "messages": [{"role": "user", "content": "hello"}]
+        }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body, json!({"error": "Unexpected endpoint or method"}));
+}
+
 #[tokio::test]
 async fn unknown_provider_returns_400() {
     let server = MockServer::start().await;
