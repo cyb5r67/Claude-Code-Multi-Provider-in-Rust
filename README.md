@@ -8,8 +8,10 @@ This is a Rust rewrite (axum + reqwest + serde + tracing) of the original
 [`simple-proxy.py`](https://gist.github.com/spideynolove/13785891385ed6916619ebb991b490b9)
 (FastAPI/httpx).
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for process-flow and module
-diagrams (Mermaid).
+See [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for the full configuration
+reference, model-switching semantics, an LM Studio example, and
+troubleshooting. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for
+process-flow and module diagrams (Mermaid).
 
 ## How it works
 
@@ -66,8 +68,12 @@ claude
 Switch providers mid-session:
 
 ```
-/model deepseek/deepseek-chat
+/model deepseek/deepseek-chat    # provider + model
+/model deepseek                  # bare provider name -> its configured default model
 ```
+
+See the [user guide](docs/USER_GUIDE.md#switching-providers-and-models) for the
+full semantics (multi-slash model ids, pass-through of non-provider prefixes).
 
 ## Development
 
@@ -86,7 +92,7 @@ Logging is controlled by `RUST_LOG` (default `info`), e.g. `RUST_LOG=debug`.
 | `src/main.rs`         | Entrypoint: tracing, config load, bind + serve        |
 | `src/lib.rs`          | State construction, startup key-presence logging      |
 | `src/config.rs`       | TOML config model, loading, API-key resolution        |
-| `src/model_command.rs`| Parse & strip `/model provider/model` commands        |
+| `src/model_command.rs`| Parse & strip legacy `/model` text commands           |
 | `src/proxy.rs`        | Router, `/v1/messages` forwarding, `/health`          |
 | `src/error.rs`        | `AppError` → HTTP status + JSON error body            |
 

@@ -33,7 +33,7 @@ flowchart LR
 
     CC -- "Anthropic Messages API" --> H1
     CFG -. "loaded at startup" .-> proxy
-    H1 -- "routed by default<br/>or /model command" --> P1 & P2 & P3 & P4
+    H1 -- "routed by default, by the<br/>request's model field, or by a<br/>legacy /model text command" --> P1 & P2 & P3 & P4
 ```
 
 ---
@@ -48,8 +48,8 @@ flowchart TD
     main["main.rs<br/>entrypoint: tracing, bind, serve"]
     lib["lib.rs<br/>build_state, log_key_presence"]
     config["config.rs<br/>Config / Provider, TOML load,<br/>API-key resolution"]
-    proxy["proxy.rs<br/>router, /v1/messages, /health,<br/>AppState"]
-    model["model_command.rs<br/>parse_and_strip /model cmd"]
+    proxy["proxy.rs<br/>router, resolve_route,<br/>/v1/messages, /health, AppState"]
+    model["model_command.rs<br/>parse_and_strip legacy<br/>/model text command"]
     error["error.rs<br/>AppError -> HTTP response"]
 
     main --> lib
@@ -77,15 +77,17 @@ sequenceDiagram
     participant Lib as lib.rs
     participant Axum as axum::serve
 
-    OS->>Main: run binary
+    OS->>Main: run binary [config-path]
     Main->>Main: init tracing (RUST_LOG, default info)
-    Main->>Cfg: Config::resolve_path() (PROXY_CONFIG or ./config.toml)
+    Main->>Cfg: Config::resolve_path(argv[1])
+    Note over Cfg: precedence: CLI arg,<br/>then PROXY_CONFIG env var,<br/>then ./config.toml
     Main->>Cfg: Config::load(path)
     alt file unreadable or invalid TOML
         Cfg-->>Main: Err(ConfigError)
         Main-->>OS: log error, ExitCode::FAILURE
     else parsed
         Cfg-->>Main: Config
+        Main->>Main: log "loaded config path=..."
         Main->>Lib: log_key_presence(&config)
         Note over Lib: warn for each provider whose<br/>API-key env var is unset
         Main->>Lib: build_state(config)
@@ -100,20 +102,31 @@ sequenceDiagram
 
 ## 4. Request processing flow — `POST /v1/messages`
 
-The core routing and forwarding logic, including every error branch.
+The core routing and forwarding logic, including every error branch. The
+routing decision lives in the pure function `resolve_route` (unit-tested
+directly). Claude Code's built-in `/model` command never reaches the proxy as
+message text — it sets the request body's `model` field to whatever the user
+typed, which is why the model field drives provider selection.
 
 ```mermaid
 flowchart TD
     A["POST /v1/messages<br/>(raw body bytes)"] --> B{"parse body<br/>as JSON?"}
     B -- "no" --> E400a["AppError::InvalidJson<br/>-> 400"]
-    B -- "yes" --> C["provider = default.provider<br/>model = body.model or default.model"]
+    B -- "yes" --> C["resolve_route:<br/>provider = default.provider<br/>model = body.model or default.model"]
 
     C --> D["parse_and_strip(body)<br/>(see diagram 5)"]
-    D --> F{"/model command<br/>found?"}
+    D --> F{"legacy /model command<br/>in message text?"}
     F -- "yes" --> G["override provider + model<br/>log 'model switch'"]
-    F -- "no" --> H["keep defaults"]
+    F -- "no" --> H{"model field is<br/>'prefix/rest' where prefix is<br/>a configured provider?"}
+    H -- "yes" --> H1["provider = prefix<br/>model = rest<br/>(rest may itself contain '/')"]
+    H -- "no" --> H2{"model field is a bare<br/>provider name with a<br/>configured default model?"}
+    H2 -- "yes" --> H3["provider = that name<br/>model = its configured default"]
+    H2 -- "no" --> H4["keep defaults;<br/>model passes through unchanged<br/>(e.g. openrouter's 'x-ai/...')"]
+
     G --> I
-    H --> I["write resolved model back into body"]
+    H1 --> I
+    H3 --> I
+    H4 --> I["write resolved model back into body"]
 
     I --> J{"provider in<br/>config?"}
     J -- "no" --> E400b["AppError::UnknownProvider<br/>-> 400"]
@@ -133,11 +146,16 @@ flowchart TD
 
 ---
 
-## 5. `/model` command parsing — `parse_and_strip`
+## 5. Legacy `/model` text-command parsing — `parse_and_strip`
 
-Detects `/model <provider>/<model>` in the first user message, reroutes, and
-strips the command from the text. Handles both string content and the
-array-of-content-blocks shape Claude Code emits.
+Detects `/model <provider>/<model>` appearing as *message text* in the first
+user message, reroutes, and strips the command so the upstream model never sees
+it. Handles both string content and the array-of-content-blocks shape.
+
+> This is the legacy path, kept for API clients that send the command as text.
+> Current Claude Code intercepts `/model` client-side and sets the request's
+> `model` field instead — that path is handled by `resolve_route` (diagram 4)
+> and never reaches this parser.
 
 ```mermaid
 flowchart TD
@@ -240,5 +258,6 @@ flowchart LR
 
 ## Related documents
 
-- [README.md](../README.md) — usage and setup
-- [Design spec](superpowers/specs/2026-07-10-claude-multi-proxy-rust-design.md) — original design decisions
+- [README.md](../README.md) — overview and quick start
+- [User guide](USER_GUIDE.md) — configuration reference, model switching, troubleshooting
+- [Design spec](superpowers/specs/2026-07-10-claude-multi-proxy-rust-design.md) — original design decisions (historical; routing has since moved to the model field)
