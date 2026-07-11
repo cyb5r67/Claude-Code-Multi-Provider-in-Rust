@@ -17,10 +17,16 @@ diagrams (Mermaid).
 - `POST /v1/messages` — forwards the Claude Code request to the selected provider.
   - Provider/model default to the values in `config.toml`, or the request body's
     own `model`.
-  - A `/model <provider>/<model>` command in a user message reroutes the request
-    and is stripped from the text before forwarding, so the upstream model never
-    sees the command. Both plain-string and content-block message shapes are
-    handled.
+  - A `model` field of the form `<provider>/<model>` (which is what Claude
+    Code's built-in `/model` command sends) selects that provider directly;
+    everything after the first `/` is forwarded as the model id. A bare
+    provider name selects that provider with its configured default `model`.
+    Slash-containing ids whose prefix is *not* a configured provider (e.g.
+    openrouter's `x-ai/grok-code-fast-1`) pass through to the default provider
+    unchanged.
+  - Legacy: a `/model <provider>/<model>` command appearing as user message
+    *text* also reroutes the request and is stripped before forwarding. Both
+    plain-string and content-block message shapes are handled.
   - Responses stream straight through (SSE and JSON alike), preserving the
     upstream status and content type.
 - `GET /health` — returns `{"status":"ok"}`.

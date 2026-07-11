@@ -52,11 +52,29 @@ async fn messages_proxy(State(state): State<AppState>, body: Bytes) -> Result<Re
         .unwrap_or(&cfg.default.model)
         .to_string();
 
-    // An in-session `/model provider/model` command overrides both.
+    // An in-session `/model provider/model` command in message text overrides
+    // both. This is legacy behavior: current Claude Code handles `/model`
+    // client-side and never sends it as text -- it sets the body's `model`
+    // field to whatever the user typed, which the two branches below handle.
     if let Some(cmd) = model_command::parse_and_strip(&mut payload) {
         tracing::info!(provider = %cmd.provider, model = %cmd.model, "model switch via /model command");
         provider_key = cmd.provider;
         model = cmd.model;
+    }
+    // A `provider/model` value in the model field selects that provider
+    // directly. Ids whose prefix is not a configured provider (e.g.
+    // openrouter's `x-ai/grok-code-fast-1`) pass through untouched.
+    else if let Some((prefix, rest)) = model.split_once('/') {
+        if !rest.is_empty() && cfg.providers.contains_key(prefix) {
+            tracing::info!(provider = %prefix, model = %rest, "model switch via model field");
+            provider_key = prefix.to_string();
+            model = rest.to_string();
+        }
+    }
+    // A bare provider name selects that provider's configured default model.
+    else if let Some(default_model) = cfg.providers.get(&model).and_then(|p| p.model.clone()) {
+        tracing::info!(provider = %model, model = %default_model, "provider switch via model field");
+        provider_key = std::mem::replace(&mut model, default_model);
     }
 
     payload["model"] = Value::String(model.clone());

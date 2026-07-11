@@ -44,6 +44,10 @@ pub struct DefaultConfig {
 pub struct Provider {
     pub base_url: String,
     pub api_key_env: String,
+    /// Optional default model, used when a request selects this provider by
+    /// bare name (e.g. Claude Code's `/model qwen`).
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 impl Provider {

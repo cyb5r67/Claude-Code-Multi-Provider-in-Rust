@@ -7,6 +7,11 @@
 #
 # Switch providers in-session with:  /model <provider>/<model>
 #   e.g.  /model deepseek/deepseek-chat
+# Or select a provider by bare name to use its configured default model:
+#   /model deepseek
+# (Claude Code sends the /model argument in the request's `model` field; a
+# leading token matching a provider name below selects that provider, and
+# anything after the first "/" is passed upstream as the model id.)
 
 [server]
 host = "127.0.0.1"

@@ -34,6 +34,7 @@ fn config_toml(primary_url: &str, secondary_url: &str) -> String {
         [providers.secondary]
         base_url = "{secondary_url}/v1/messages"
         api_key_env = "IT_SECONDARY_KEY"
+        model = "secondary-default-model"
         "#
     )
 }
@@ -126,6 +127,126 @@ async fn model_command_reroutes_and_strips_command() {
 
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body, json!({"routed": "secondary"}));
+}
+
+/// Claude Code's built-in `/model` sets the request body's `model` field
+/// rather than sending the command as message text; a `provider/model` value
+/// there must switch providers.
+#[tokio::test]
+async fn provider_prefixed_model_field_reroutes() {
+    let primary = MockServer::start().await;
+    let secondary = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(0)
+        .mount(&primary)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(header("x-api-key", "secondary-secret"))
+        .and(body_json(json!({
+            "model": "switched-model",
+            "messages": [{"role": "user", "content": "hello"}]
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"routed": "secondary"})))
+        .expect(1)
+        .mount(&secondary)
+        .await;
+
+    let cfg = Config::from_toml_str(&config_toml(&primary.uri(), &secondary.uri())).unwrap();
+    let app = proxy::router(build_state(cfg).unwrap());
+
+    let (status, body) = send(
+        app,
+        json!({
+            "model": "secondary/switched-model",
+            "messages": [{"role": "user", "content": "hello"}]
+        }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, json!({"routed": "secondary"}));
+}
+
+/// A bare provider name in the model field selects that provider with its
+/// configured default model.
+#[tokio::test]
+async fn bare_provider_name_uses_its_default_model() {
+    let primary = MockServer::start().await;
+    let secondary = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(0)
+        .mount(&primary)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(header("x-api-key", "secondary-secret"))
+        .and(body_json(json!({
+            "model": "secondary-default-model",
+            "messages": [{"role": "user", "content": "hello"}]
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"routed": "secondary"})))
+        .expect(1)
+        .mount(&secondary)
+        .await;
+
+    let cfg = Config::from_toml_str(&config_toml(&primary.uri(), &secondary.uri())).unwrap();
+    let app = proxy::router(build_state(cfg).unwrap());
+
+    let (status, body) = send(
+        app,
+        json!({
+            "model": "secondary",
+            "messages": [{"role": "user", "content": "hello"}]
+        }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, json!({"routed": "secondary"}));
+}
+
+/// A slash-containing model id whose prefix is NOT a configured provider
+/// (e.g. openrouter's `x-ai/...` ids) passes through to the default provider
+/// unchanged.
+#[tokio::test]
+async fn non_provider_slash_model_passes_through_to_default() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(header("x-api-key", "primary-secret"))
+        .and(body_json(json!({
+            "model": "x-ai/grok-code-fast-1",
+            "messages": [{"role": "user", "content": "hello"}]
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"routed": "primary"})))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let cfg = Config::from_toml_str(&config_toml(&server.uri(), &server.uri())).unwrap();
+    let app = proxy::router(build_state(cfg).unwrap());
+
+    let (status, body) = send(
+        app,
+        json!({
+            "model": "x-ai/grok-code-fast-1",
+            "messages": [{"role": "user", "content": "hello"}]
+        }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, json!({"routed": "primary"}));
 }
 
 #[tokio::test]
