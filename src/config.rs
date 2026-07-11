@@ -96,9 +96,12 @@ impl Config {
         Self::from_toml_str(&text).map_err(ConfigError::Parse)
     }
 
-    /// Resolve the config path from `PROXY_CONFIG`, defaulting to `config.toml`.
-    pub fn resolve_path() -> String {
-        std::env::var("PROXY_CONFIG").unwrap_or_else(|_| "config.toml".to_string())
+    /// Resolve the config path: an explicit CLI argument wins, then the
+    /// `PROXY_CONFIG` env var, then `config.toml`.
+    pub fn resolve_path(cli_arg: Option<String>) -> String {
+        cli_arg
+            .or_else(|| std::env::var("PROXY_CONFIG").ok())
+            .unwrap_or_else(|| "config.toml".to_string())
     }
 }
 
@@ -205,6 +208,20 @@ mod tests {
         let cfg = Config::from_toml_str(toml).expect("should parse");
         assert_eq!(cfg.providers["a"].model.as_deref(), Some("a-default"));
         assert_eq!(cfg.providers["b"].model, None);
+    }
+
+    // One sequential test for all three branches: PROXY_CONFIG is shared
+    // process state, so splitting these into parallel tests would race.
+    #[test]
+    fn resolve_path_prefers_arg_then_env_then_default() {
+        std::env::set_var("PROXY_CONFIG", "from-env.toml");
+        assert_eq!(
+            Config::resolve_path(Some("from-arg.toml".into())),
+            "from-arg.toml"
+        );
+        assert_eq!(Config::resolve_path(None), "from-env.toml");
+        std::env::remove_var("PROXY_CONFIG");
+        assert_eq!(Config::resolve_path(None), "config.toml");
     }
 
     #[test]

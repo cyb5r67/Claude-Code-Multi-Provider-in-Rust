@@ -37,7 +37,9 @@ Providers, defaults, and server settings live in `config.toml`. API keys are
 **not** stored in the file — each provider names an environment variable holding
 its key. See the checked-in [`config.toml`](config.toml) for the full example.
 
-The config path is taken from `PROXY_CONFIG` (default `./config.toml`).
+The config path is resolved in order of precedence: first CLI argument
+(`cargo run -- my-config.toml`), then the `PROXY_CONFIG` env var, then
+`./config.toml`. The path actually loaded is logged at startup.
 
 > **Note on the `openrouter` provider:** the original Python proxy pointed
 > `openrouter` at `http://localhost:8787/v1/messages` — the proxy's *own* address —
@@ -52,8 +54,8 @@ export DEEPSEEK_API_KEY=...
 export OPENROUTER_API_KEY=...
 # (etc. — see config.toml)
 
-# 2. Run the proxy
-cargo run --release
+# 2. Run the proxy (optionally naming a config file)
+cargo run --release -- my-config.toml
 
 # 3. Point Claude Code at it
 export ANTHROPIC_BASE_URL="http://localhost:8787"

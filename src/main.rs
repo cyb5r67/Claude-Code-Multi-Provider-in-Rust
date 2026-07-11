@@ -16,7 +16,7 @@ async fn main() -> ExitCode {
         )
         .init();
 
-    let config_path = Config::resolve_path();
+    let config_path = Config::resolve_path(std::env::args().nth(1));
     let config = match Config::load(Path::new(&config_path)) {
         Ok(c) => c,
         Err(e) => {
@@ -24,6 +24,7 @@ async fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    tracing::info!(path = %config_path, "loaded config");
 
     let bind_addr = format!("{}:{}", config.server.host, config.server.port);
     log_key_presence(&config);
