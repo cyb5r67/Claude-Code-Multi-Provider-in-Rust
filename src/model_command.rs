@@ -256,4 +256,77 @@ mod tests {
         });
         assert!(parse_and_strip(&mut body).is_none());
     }
+
+    #[test]
+    fn command_must_lead_the_message() {
+        let mut body = json!({
+            "messages": [
+                {"role": "user", "content": "please run /model kimi/moonshot-v1-8k"}
+            ]
+        });
+        assert!(parse_and_strip(&mut body).is_none());
+        assert_eq!(
+            body["messages"][0]["content"],
+            "please run /model kimi/moonshot-v1-8k"
+        );
+    }
+
+    #[test]
+    fn leading_whitespace_before_command_is_accepted() {
+        let mut body = json!({
+            "messages": [
+                {"role": "user", "content": "  /model zai/glm-4"}
+            ]
+        });
+        let cmd = parse_and_strip(&mut body).expect("command");
+        assert_eq!(cmd.provider, "zai");
+        assert_eq!(cmd.model, "glm-4");
+    }
+
+    #[test]
+    fn ignores_empty_provider_or_model() {
+        for text in ["/model /glm-4", "/model zai/"] {
+            let mut body = json!({
+                "messages": [{"role": "user", "content": text}]
+            });
+            assert!(
+                parse_and_strip(&mut body).is_none(),
+                "should ignore {text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn skips_non_text_blocks_and_matches_a_later_text_block() {
+        let mut body = json!({
+            "messages": [
+                {"role": "user", "content": [
+                    {"type": "image", "source": {"type": "base64", "data": "..."}},
+                    {"type": "text", "text": "/model zai/glm-4"}
+                ]}
+            ]
+        });
+        let cmd = parse_and_strip(&mut body).expect("command");
+        assert_eq!(cmd.provider, "zai");
+        // Only the emptied text block is removed; the image block stays.
+        let blocks = body["messages"][0]["content"].as_array().unwrap();
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0]["type"], "image");
+    }
+
+    #[test]
+    fn first_matching_user_message_wins() {
+        let mut body = json!({
+            "messages": [
+                {"role": "user", "content": "no command here"},
+                {"role": "user", "content": "/model kimi/moonshot-v1-8k"},
+                {"role": "user", "content": "/model zai/glm-4"}
+            ]
+        });
+        let cmd = parse_and_strip(&mut body).expect("command");
+        assert_eq!(cmd.provider, "kimi");
+        // Only the matched (command-only) message is removed; the later
+        // command is left for a subsequent pass.
+        assert_eq!(body["messages"].as_array().unwrap().len(), 2);
+    }
 }

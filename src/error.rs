@@ -52,3 +52,71 @@ impl IntoResponse for AppError {
         (status, Json(json!({ "error": message }))).into_response()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use http_body_util::BodyExt;
+    use serde_json::Value;
+
+    /// Render an error the way the handler does and return (status, body).
+    async fn render(err: AppError) -> (StatusCode, Value) {
+        let resp = err.into_response();
+        let status = resp.status();
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        (status, serde_json::from_slice(&bytes).unwrap())
+    }
+
+    /// Build a real `reqwest::Error` without touching the network: sending a
+    /// request with an unparseable URL fails at build time.
+    async fn reqwest_error() -> reqwest::Error {
+        reqwest::Client::new()
+            .get("not a url")
+            .send()
+            .await
+            .expect_err("invalid URL must fail")
+    }
+
+    #[tokio::test]
+    async fn invalid_json_is_400_with_json_error_body() {
+        let (status, body) = render(AppError::InvalidJson("boom".into())).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["error"], "invalid JSON body: boom");
+    }
+
+    #[tokio::test]
+    async fn unknown_provider_is_400_and_names_the_provider() {
+        let (status, body) = render(AppError::UnknownProvider("nope".into())).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["error"], "invalid provider specified: nope");
+    }
+
+    #[tokio::test]
+    async fn missing_api_key_is_500_and_names_provider_and_env() {
+        let (status, body) = render(AppError::MissingApiKey {
+            provider: "qwen".into(),
+            env: "LMSTUDIO".into(),
+        })
+        .await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            body["error"],
+            "API key environment variable 'LMSTUDIO' not set for provider 'qwen'"
+        );
+    }
+
+    #[tokio::test]
+    async fn upstream_failure_is_502_and_names_the_provider() {
+        let (status, body) = render(AppError::Upstream {
+            provider: "deepseek".into(),
+            source: reqwest_error().await,
+        })
+        .await;
+        assert_eq!(status, StatusCode::BAD_GATEWAY);
+        let message = body["error"].as_str().unwrap();
+        assert!(
+            message.starts_with("failed to reach provider 'deepseek'"),
+            "unexpected message: {message}"
+        );
+    }
+}

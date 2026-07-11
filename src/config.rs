@@ -156,6 +156,68 @@ mod tests {
         );
     }
 
+    fn provider(api_key_env: &str) -> Provider {
+        Provider {
+            base_url: "http://example.test/v1/messages".into(),
+            api_key_env: api_key_env.into(),
+            model: None,
+        }
+    }
+
+    // Each api_key test uses its own env var name: unit tests run in parallel
+    // threads within one process, so shared names would race.
+    #[test]
+    fn api_key_resolves_when_env_var_is_set() {
+        std::env::set_var("CMP_TEST_KEY_SET", "secret");
+        assert_eq!(
+            provider("CMP_TEST_KEY_SET").api_key().as_deref(),
+            Some("secret")
+        );
+    }
+
+    #[test]
+    fn api_key_is_none_when_env_var_is_empty() {
+        std::env::set_var("CMP_TEST_KEY_EMPTY", "");
+        assert_eq!(provider("CMP_TEST_KEY_EMPTY").api_key(), None);
+    }
+
+    #[test]
+    fn api_key_is_none_when_env_var_is_unset() {
+        assert_eq!(provider("CMP_TEST_KEY_NEVER_SET").api_key(), None);
+    }
+
+    #[test]
+    fn provider_model_is_optional() {
+        let toml = r#"
+            [default]
+            provider = "a"
+            model = "m"
+
+            [providers.a]
+            base_url = "http://a.test/v1/messages"
+            api_key_env = "A_KEY"
+            model = "a-default"
+
+            [providers.b]
+            base_url = "http://b.test/v1/messages"
+            api_key_env = "B_KEY"
+        "#;
+        let cfg = Config::from_toml_str(toml).expect("should parse");
+        assert_eq!(cfg.providers["a"].model.as_deref(), Some("a-default"));
+        assert_eq!(cfg.providers["b"].model, None);
+    }
+
+    #[test]
+    fn missing_required_section_fails_to_parse() {
+        // No [default] section.
+        let toml = r#"
+            [providers.a]
+            base_url = "http://a.test/v1/messages"
+            api_key_env = "A_KEY"
+        "#;
+        assert!(Config::from_toml_str(toml).is_err());
+    }
+
     #[test]
     fn server_section_defaults_when_omitted() {
         let toml = r#"

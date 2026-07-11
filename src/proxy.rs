@@ -35,15 +35,10 @@ async fn health() -> Json<Value> {
     Json(json!({ "status": "ok" }))
 }
 
-/// Receive a Claude Code request, choose the target provider (default or via an
-/// in-session `/model` command), and forward it upstream, streaming the response
-/// straight back to the client.
-async fn messages_proxy(State(state): State<AppState>, body: Bytes) -> Result<Response, AppError> {
-    let cfg = &state.config;
-
-    let mut payload: Value =
-        serde_json::from_slice(&body).map_err(|e| AppError::InvalidJson(e.to_string()))?;
-
+/// Decide the target `(provider_key, model)` for a request and normalize the
+/// payload: strips any in-text `/model` command and writes the final model back
+/// into `payload["model"]`.
+fn resolve_route(cfg: &Config, payload: &mut Value) -> (String, String) {
     // Start from the defaults; the request body may carry its own model.
     let mut provider_key = cfg.default.provider.clone();
     let mut model = payload
@@ -56,7 +51,7 @@ async fn messages_proxy(State(state): State<AppState>, body: Bytes) -> Result<Re
     // both. This is legacy behavior: current Claude Code handles `/model`
     // client-side and never sends it as text -- it sets the body's `model`
     // field to whatever the user typed, which the two branches below handle.
-    if let Some(cmd) = model_command::parse_and_strip(&mut payload) {
+    if let Some(cmd) = model_command::parse_and_strip(payload) {
         tracing::info!(provider = %cmd.provider, model = %cmd.model, "model switch via /model command");
         provider_key = cmd.provider;
         model = cmd.model;
@@ -78,6 +73,19 @@ async fn messages_proxy(State(state): State<AppState>, body: Bytes) -> Result<Re
     }
 
     payload["model"] = Value::String(model.clone());
+    (provider_key, model)
+}
+
+/// Receive a Claude Code request, choose the target provider (default or via an
+/// in-session `/model` command), and forward it upstream, streaming the response
+/// straight back to the client.
+async fn messages_proxy(State(state): State<AppState>, body: Bytes) -> Result<Response, AppError> {
+    let cfg = &state.config;
+
+    let mut payload: Value =
+        serde_json::from_slice(&body).map_err(|e| AppError::InvalidJson(e.to_string()))?;
+
+    let (provider_key, model) = resolve_route(cfg, &mut payload);
 
     // Resolve provider + API key.
     let provider = cfg
@@ -125,4 +133,126 @@ async fn messages_proxy(State(state): State<AppState>, body: Bytes) -> Result<Re
     response.headers_mut().insert(CONTENT_TYPE, content_type);
 
     Ok(response.into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn cfg() -> Config {
+        Config::from_toml_str(
+            r#"
+            [default]
+            provider = "alpha"
+            model = "alpha-default-model"
+
+            [providers.alpha]
+            base_url = "http://alpha.test/v1/messages"
+            api_key_env = "ALPHA_KEY"
+
+            [providers.beta]
+            base_url = "http://beta.test/v1/messages"
+            api_key_env = "BETA_KEY"
+            model = "beta-default-model"
+            "#,
+        )
+        .expect("test config parses")
+    }
+
+    #[test]
+    fn defaults_apply_when_body_has_no_model() {
+        let mut payload = json!({"messages": []});
+        let (provider, model) = resolve_route(&cfg(), &mut payload);
+        assert_eq!(provider, "alpha");
+        assert_eq!(model, "alpha-default-model");
+        assert_eq!(payload["model"], "alpha-default-model");
+    }
+
+    #[test]
+    fn body_model_passes_through_to_default_provider() {
+        let mut payload = json!({"model": "some-explicit-model", "messages": []});
+        let (provider, model) = resolve_route(&cfg(), &mut payload);
+        assert_eq!(provider, "alpha");
+        assert_eq!(model, "some-explicit-model");
+    }
+
+    #[test]
+    fn provider_prefixed_model_field_switches_provider() {
+        let mut payload = json!({"model": "beta/some-model", "messages": []});
+        let (provider, model) = resolve_route(&cfg(), &mut payload);
+        assert_eq!(provider, "beta");
+        assert_eq!(model, "some-model");
+        assert_eq!(payload["model"], "some-model");
+    }
+
+    #[test]
+    fn provider_prefix_keeps_remaining_slashes_in_model() {
+        // `/model beta/org/model-id` -- only the first slash separates the
+        // provider; the rest is the upstream model id verbatim.
+        let mut payload = json!({"model": "beta/org/model-id", "messages": []});
+        let (provider, model) = resolve_route(&cfg(), &mut payload);
+        assert_eq!(provider, "beta");
+        assert_eq!(model, "org/model-id");
+    }
+
+    #[test]
+    fn non_provider_prefix_passes_through_unchanged() {
+        let mut payload = json!({"model": "x-ai/grok-code-fast-1", "messages": []});
+        let (provider, model) = resolve_route(&cfg(), &mut payload);
+        assert_eq!(provider, "alpha");
+        assert_eq!(model, "x-ai/grok-code-fast-1");
+    }
+
+    #[test]
+    fn bare_provider_name_uses_configured_default_model() {
+        let mut payload = json!({"model": "beta", "messages": []});
+        let (provider, model) = resolve_route(&cfg(), &mut payload);
+        assert_eq!(provider, "beta");
+        assert_eq!(model, "beta-default-model");
+    }
+
+    #[test]
+    fn bare_provider_name_without_default_model_is_treated_as_model() {
+        // `alpha` has no configured default model, so the string stays a model
+        // id on the default provider rather than selecting provider `alpha`.
+        let mut payload = json!({"model": "alpha", "messages": []});
+        let (provider, model) = resolve_route(&cfg(), &mut payload);
+        assert_eq!(provider, "alpha");
+        assert_eq!(model, "alpha");
+    }
+
+    #[test]
+    fn trailing_slash_does_not_switch_provider() {
+        let mut payload = json!({"model": "beta/", "messages": []});
+        let (provider, model) = resolve_route(&cfg(), &mut payload);
+        assert_eq!(provider, "alpha");
+        assert_eq!(model, "beta/");
+    }
+
+    #[test]
+    fn text_command_wins_over_model_field() {
+        let mut payload = json!({
+            "model": "beta/field-model",
+            "messages": [{"role": "user", "content": "/model alpha/text-model hi"}]
+        });
+        let (provider, model) = resolve_route(&cfg(), &mut payload);
+        assert_eq!(provider, "alpha");
+        assert_eq!(model, "text-model");
+        // Command stripped, remainder kept, final model written back.
+        assert_eq!(payload["messages"][0]["content"], "hi");
+        assert_eq!(payload["model"], "text-model");
+    }
+
+    #[test]
+    fn unknown_provider_from_text_command_is_returned_for_later_rejection() {
+        // resolve_route does not validate the provider; the handler rejects
+        // unknown keys when looking them up in the config.
+        let mut payload = json!({
+            "messages": [{"role": "user", "content": "/model nope/whatever hi"}]
+        });
+        let (provider, model) = resolve_route(&cfg(), &mut payload);
+        assert_eq!(provider, "nope");
+        assert_eq!(model, "whatever");
+    }
 }
