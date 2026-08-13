@@ -171,6 +171,10 @@ impl Orchestrator {
     pub fn status(&self) -> OrchestratorStatus {
         let used = self.budget_used();
         let max = self.cfg.max_cloud_requests_per_hour;
+        // Take each lock in its own scope: acquiring the sticky lock while the
+        // history guard is alive would create an undocumented lock-order
+        // invariant a future caller could deadlock against.
+        let sticky_cloud_conversations = self.sticky_count();
         let history = self.history.lock().unwrap();
         OrchestratorStatus {
             enabled: self.cfg.enabled,
@@ -184,7 +188,7 @@ impl Orchestrator {
                 used_last_hour: used,
                 remaining: max.saturating_sub(used),
             },
-            sticky_cloud_conversations: self.sticky_count(),
+            sticky_cloud_conversations,
             escalations: EscalationsStatus {
                 total_since_start: history.total_escalations,
                 budget_denied_since_start: history.total_budget_denied,
