@@ -403,3 +403,13 @@ async fn passthrough_unreachable_upstream_is_502_openai_shaped() {
     assert_eq!(v["error"]["type"], "api_error");
     let _ = std::fs::remove_file(&state_file);
 }
+
+#[tokio::test]
+async fn status_includes_chat_settings() {
+    let cfg =
+        Config::from_toml_str(&chat_config("http://unused.test", &temp_state("status"))).unwrap();
+    let (status, body) = get(proxy::router(build_state(cfg).unwrap()), "/status").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["chat"]["pipeline_enabled"], true);
+    assert_eq!(body["chat"]["model_override"], "cascade");
+}

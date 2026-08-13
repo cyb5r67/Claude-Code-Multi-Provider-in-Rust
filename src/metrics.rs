@@ -212,6 +212,21 @@ mod tests {
     }
 
     #[test]
+    fn chat_counter_renders_by_mode() {
+        let m = Metrics::new();
+        m.chat_requests_total
+            .with_label_values(&[CHAT_MODE_PIPELINE])
+            .inc();
+        let text = m.render();
+        assert!(has_series(
+            &text,
+            "bb_chat_requests_total",
+            &[("mode", "pipeline")],
+            "1"
+        ));
+    }
+
+    #[test]
     fn labeled_counters_render_expected_series() {
         let m = Metrics::new();
         m.tier_requests_total.with_label_values(&[TIER_LOCAL]).inc();

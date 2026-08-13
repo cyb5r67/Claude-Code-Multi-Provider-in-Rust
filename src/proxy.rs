@@ -71,7 +71,9 @@ async fn status(State(state): State<AppState>) -> Json<Value> {
         })
         .collect();
     let orchestrator = state.orchestrator.as_ref().map(|o| o.status());
+    let chat = state.chat.as_ref().map(|c| c.get());
     Json(json!({
+        "chat": chat,
         "proxy": {
             "version": env!("CARGO_PKG_VERSION"),
             "default_provider": state.config.default.provider,
