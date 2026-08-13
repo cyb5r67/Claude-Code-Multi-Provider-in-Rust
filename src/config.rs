@@ -17,6 +17,8 @@ pub struct Config {
     pub server: ServerConfig,
     pub default: DefaultConfig,
     pub providers: BTreeMap<String, Provider>,
+    #[serde(default)]
+    pub orchestrator: Option<OrchestratorConfig>,
 }
 
 /// HTTP server + upstream request settings.
@@ -48,6 +50,10 @@ pub struct Provider {
     /// bare name (e.g. Claude Code's `/model qwen`).
     #[serde(default)]
     pub model: Option<String>,
+    /// How to authenticate; defaults to the Bearer style used by y-router-like
+    /// endpoints.
+    #[serde(default)]
+    pub auth_style: AuthStyle,
 }
 
 impl Provider {
@@ -61,6 +67,45 @@ impl Provider {
     }
 }
 
+/// How to authenticate against a provider's endpoint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AuthStyle {
+    /// `authorization: Bearer <key>` plus `x-api-key` (y-router compatibility).
+    #[default]
+    Bearer,
+    /// `x-api-key: <key>` plus `anthropic-version: 2023-06-01` (api.anthropic.com).
+    Anthropic,
+}
+
+/// Behavior when the local tier fails before a sentinel verdict is reached.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FailMode {
+    /// Escalate to the cloud tier (budget permitting).
+    #[default]
+    Cloud,
+    /// Surface the local tier's error to the client (pre-orchestrator behavior).
+    Error,
+}
+
+/// Settings for the hierarchical orchestrator (Phase 1 sentinel cascade).
+#[derive(Debug, Clone, Deserialize)]
+pub struct OrchestratorConfig {
+    /// Presence of the section implies intent, so this defaults to true.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    pub local_provider: String,
+    pub escalation_provider: String,
+    pub escalation_model: String,
+    #[serde(default = "default_sentinel")]
+    pub sentinel: String,
+    #[serde(default = "default_max_cloud_requests_per_hour")]
+    pub max_cloud_requests_per_hour: u32,
+    #[serde(default)]
+    pub fail_mode: FailMode,
+}
+
 fn default_host() -> String {
     "127.0.0.1".to_string()
 }
@@ -69,6 +114,15 @@ fn default_port() -> u16 {
 }
 fn default_timeout_secs() -> u64 {
     300
+}
+fn default_true() -> bool {
+    true
+}
+fn default_sentinel() -> String {
+    "<<ESCALATE>>".to_string()
+}
+fn default_max_cloud_requests_per_hour() -> u32 {
+    50
 }
 
 impl Default for ServerConfig {
@@ -164,6 +218,7 @@ mod tests {
             base_url: "http://example.test/v1/messages".into(),
             api_key_env: api_key_env.into(),
             model: None,
+            auth_style: AuthStyle::default(),
         }
     }
 
@@ -250,5 +305,100 @@ mod tests {
         assert_eq!(cfg.server.host, "127.0.0.1");
         assert_eq!(cfg.server.port, 8787);
         assert_eq!(cfg.server.request_timeout_secs, 300);
+    }
+
+    #[test]
+    fn provider_auth_style_defaults_to_bearer_and_parses_anthropic() {
+        let toml = r#"
+            [default]
+            provider = "a"
+            model = "m"
+
+            [providers.a]
+            base_url = "http://a.test/v1/messages"
+            api_key_env = "A_KEY"
+
+            [providers.b]
+            base_url = "https://api.anthropic.com/v1/messages"
+            api_key_env = "B_KEY"
+            auth_style = "anthropic"
+        "#;
+        let cfg = Config::from_toml_str(toml).expect("should parse");
+        assert_eq!(cfg.providers["a"].auth_style, AuthStyle::Bearer);
+        assert_eq!(cfg.providers["b"].auth_style, AuthStyle::Anthropic);
+    }
+
+    #[test]
+    fn orchestrator_section_is_optional_and_none_by_default() {
+        let toml = r#"
+            [default]
+            provider = "a"
+            model = "m"
+
+            [providers.a]
+            base_url = "http://a.test/v1/messages"
+            api_key_env = "A_KEY"
+        "#;
+        let cfg = Config::from_toml_str(toml).expect("should parse");
+        assert!(cfg.orchestrator.is_none());
+    }
+
+    #[test]
+    fn orchestrator_section_parses_with_defaults() {
+        let toml = r#"
+            [default]
+            provider = "qwen"
+            model = "qwen3.6:27b"
+
+            [orchestrator]
+            local_provider = "qwen"
+            escalation_provider = "anthropic"
+            escalation_model = "claude-opus-5"
+
+            [providers.qwen]
+            base_url = "http://192.168.1.10:8088/v1/messages"
+            api_key_env = "LMSTUDIO"
+
+            [providers.anthropic]
+            base_url = "https://api.anthropic.com/v1/messages"
+            api_key_env = "ANTHROPIC_API_KEY"
+            auth_style = "anthropic"
+        "#;
+        let cfg = Config::from_toml_str(toml).expect("should parse");
+        let orch = cfg.orchestrator.expect("section present");
+        assert!(orch.enabled);
+        assert_eq!(orch.local_provider, "qwen");
+        assert_eq!(orch.escalation_provider, "anthropic");
+        assert_eq!(orch.escalation_model, "claude-opus-5");
+        assert_eq!(orch.sentinel, "<<ESCALATE>>");
+        assert_eq!(orch.max_cloud_requests_per_hour, 50);
+        assert_eq!(orch.fail_mode, FailMode::Cloud);
+    }
+
+    #[test]
+    fn orchestrator_overrides_parse() {
+        let toml = r#"
+            [default]
+            provider = "qwen"
+            model = "m"
+
+            [orchestrator]
+            enabled = false
+            local_provider = "qwen"
+            escalation_provider = "cloud"
+            escalation_model = "big"
+            sentinel = "%%UP%%"
+            max_cloud_requests_per_hour = 5
+            fail_mode = "error"
+
+            [providers.qwen]
+            base_url = "http://q.test/v1/messages"
+            api_key_env = "Q_KEY"
+        "#;
+        let orch = Config::from_toml_str(toml).unwrap().orchestrator.unwrap();
+        assert!(!orch.enabled);
+        assert_eq!(orch.sentinel, "%%UP%%");
+        assert_eq!(orch.max_cloud_requests_per_hour, 5);
+        assert_eq!(orch.fail_mode, FailMode::Error);
     }
 }
