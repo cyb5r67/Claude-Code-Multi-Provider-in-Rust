@@ -1,6 +1,7 @@
 //! Big Brother: a local reverse proxy that routes Claude Code requests to
 //! multiple LLM providers, with in-session `/model <provider>/<model>` switching.
 
+pub mod chat_proxy;
 pub mod chat_settings;
 pub mod config;
 pub mod error;
@@ -28,10 +29,15 @@ pub fn build_state(config: Config) -> Result<AppState, reqwest::Error> {
         .as_ref()
         .filter(|o| o.enabled)
         .map(|o| Arc::new(Orchestrator::new(o.clone())));
+    let chat = config
+        .chat
+        .as_ref()
+        .map(|c| Arc::new(crate::chat_settings::ChatState::load(c)));
     Ok(AppState {
         config: Arc::new(config),
         client,
         orchestrator,
+        chat,
         metrics: Arc::new(crate::metrics::Metrics::new()),
     })
 }

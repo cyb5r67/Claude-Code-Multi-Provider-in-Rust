@@ -25,6 +25,7 @@ pub struct AppState {
     pub config: Arc<Config>,
     pub client: reqwest::Client,
     pub orchestrator: Option<Arc<Orchestrator>>,
+    pub chat: Option<Arc<crate::chat_settings::ChatState>>,
     pub metrics: Arc<Metrics>,
 }
 
@@ -33,6 +34,11 @@ pub struct AppState {
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/v1/messages", post(messages_proxy))
+        .route("/v1/models", get(crate::chat_proxy::models))
+        .route(
+            "/chat/settings",
+            get(crate::chat_proxy::get_settings).put(crate::chat_proxy::put_settings),
+        )
         .route("/health", get(health))
         .route("/status", get(status))
         .route("/panel", get(panel))
