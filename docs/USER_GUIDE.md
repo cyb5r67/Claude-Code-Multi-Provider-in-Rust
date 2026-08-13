@@ -9,6 +9,7 @@ LM Studio — and switch between them mid-session with the `/model` command.
 - [The config file](#the-config-file)
 - [Switching providers and models](#switching-providers-and-models)
 - [Status panel](#status-panel)
+- [Running with Docker](#running-with-docker)
 - [Example: local LM Studio hosts](#example-local-lm-studio-hosts)
 - [Logging](#logging)
 - [Troubleshooting](#troubleshooting)
@@ -182,6 +183,41 @@ counters reset when the proxy restarts.
 
 `GET /status` returns the same data as JSON if you'd rather script against
 it (`curl http://127.0.0.1:8787/status`).
+
+---
+
+## Running with Docker
+
+Requires Docker Desktop (or any Docker Engine with Compose v2).
+
+```sh
+copy .env.example .env        # Windows (cp on Linux/macOS); fill in your keys
+docker compose up -d --build
+```
+
+What comes up:
+
+| Service | Address | Purpose |
+|---------|---------|---------|
+| `big-brother` | <http://localhost:8787> | The proxy — Claude Code target, panel at `/panel` |
+| `open-webui`  | <http://localhost:3000> | Chat UI talking straight to LM Studio (OpenAI dialect) |
+
+Both ports are published to `127.0.0.1` only, so nothing is reachable from
+your network even though the proxy binds `0.0.0.0` inside its container.
+
+- **Config:** the container reads `docker/config.toml` (not the repo-root
+  `config.toml`). Edit it, then `docker compose restart big-brother`.
+- **Keys** come from `.env` (gitignored). `docker compose up` picks up edits
+  after a `docker compose up -d` again.
+- **LM Studio stays on your LAN machine** — containers reach it by IP.
+  Update the IP in both `docker/config.toml` (proxy) and `.env`'s
+  `LMSTUDIO_HOST` (Open WebUI), and keep LM Studio's **Serve on Local
+  Network** enabled.
+- **Logs:** `docker compose logs -f big-brother` shows the same tracing
+  output as a native run, escalation audit lines included.
+- **Stop:** `docker compose down` (add `-v` to also wipe Open WebUI's data).
+- If you later run a y-router on the host, point the container's provider at
+  `http://host.docker.internal:8788/v1/messages`.
 
 ---
 

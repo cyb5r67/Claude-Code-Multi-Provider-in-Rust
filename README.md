@@ -71,6 +71,19 @@ export ANTHROPIC_API_KEY="dummy"
 claude
 ```
 
+### Or with Docker
+
+```sh
+copy .env.example .env   # then fill in your keys (cp on Linux/macOS)
+docker compose up -d --build
+```
+
+The proxy listens on <http://localhost:8787> (status panel at `/panel`) and
+[Open WebUI](https://github.com/open-webui/open-webui) on
+<http://localhost:3000> for chatting with your LM Studio models directly.
+Edit `docker/config.toml` and `docker compose restart big-brother` to apply
+config changes. Claude Code connects exactly as above.
+
 Switch providers mid-session:
 
 ```
