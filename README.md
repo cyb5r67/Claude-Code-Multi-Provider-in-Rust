@@ -85,6 +85,9 @@ The proxy listens on <http://localhost:8787> (status panel at `/panel`) and
 <http://localhost:3000> for chatting with your LM Studio models directly.
 Edit `docker/config.toml` and `docker compose restart big-brother` to apply
 config changes. Claude Code connects exactly as above.
+Prometheus runs at <http://localhost:9090> and a pre-provisioned Grafana
+dashboard at <http://localhost:3001> (login `admin` /
+`GRAFANA_ADMIN_PASSWORD`).
 
 Switch providers mid-session:
 

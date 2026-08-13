@@ -202,6 +202,8 @@ What comes up:
 |---------|---------|---------|
 | `big-brother` | <http://localhost:8787> | The proxy — Claude Code target, panel at `/panel` |
 | `open-webui`  | <http://localhost:3000> | Chat UI talking straight to LM Studio (OpenAI dialect) |
+| `prometheus`  | <http://localhost:9090> | Scrapes the proxy's `/metrics` every 15 s |
+| `grafana`     | <http://localhost:3001> | Dashboard over Prometheus (`admin` / `GRAFANA_ADMIN_PASSWORD`) |
 
 Both ports are published to `127.0.0.1` only, so nothing is reachable from
 your network even though the proxy binds `0.0.0.0` inside its container.
@@ -220,6 +222,13 @@ your network even though the proxy binds `0.0.0.0` inside its container.
 - **Stop:** `docker compose down` (add `-v` to also wipe Open WebUI's data).
 - If you later run a y-router on the host, point the container's provider at
   `http://host.docker.internal:8788/v1/messages`.
+- **Metrics:** the proxy exposes Prometheus text format at
+  `http://localhost:8787/metrics` (requests by provider/outcome, latency
+  histograms, tier dispatches, escalations by trigger, budget and sticky
+  gauges). The bundled Grafana dashboard ("Big Brother") is provisioned
+  from `docker/grafana/dashboards/big-brother.json` — edit the JSON and
+  restart Grafana to change it. History lives in the `prometheus-data`
+  volume (default retention).
 
 ---
 
