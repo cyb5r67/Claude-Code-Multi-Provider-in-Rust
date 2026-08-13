@@ -41,6 +41,12 @@ pub struct SseTextScanner {
     raw: Vec<Bytes>,
     pending: String,
     text: String,
+    /// Set once a content block that cannot carry the sentinel's opening
+    /// token has been observed. The sentinel must be the very first token
+    /// of the response, so a non-text first block (or a partial text
+    /// prefix immediately followed by a non-text block) rules it out for
+    /// good — the stream must be released rather than buffered further.
+    ruled_out: bool,
 }
 
 impl SseTextScanner {
@@ -50,6 +56,7 @@ impl SseTextScanner {
             raw: Vec::new(),
             pending: String::new(),
             text: String::new(),
+            ruled_out: false,
         }
     }
 
@@ -66,10 +73,21 @@ impl SseTextScanner {
                 }
             }
         }
-        check_sentinel(&self.text, &self.sentinel)
+        if self.ruled_out {
+            SentinelVerdict::Clean
+        } else {
+            check_sentinel(&self.text, &self.sentinel)
+        }
     }
 
     fn absorb_event(&mut self, event: &Value) {
+        if event.get("type").and_then(Value::as_str) == Some("content_block_start") {
+            match event.pointer("/content_block/type").and_then(Value::as_str) {
+                Some("text") => {}
+                Some(_) => self.ruled_out = true,
+                None => {}
+            }
+        }
         let text = match event.get("type").and_then(Value::as_str) {
             Some("content_block_start") => event.pointer("/content_block/text"),
             Some("content_block_delta") => event.pointer("/delta/text"),
@@ -223,6 +241,44 @@ mod tests {
             scanner.push(&Bytes::from(noise)),
             SentinelVerdict::Undetermined
         );
+    }
+
+    #[test]
+    fn scanner_releases_stream_on_leading_tool_use_block() {
+        let mut scanner = SseTextScanner::new(S.to_string());
+        let start = sse_line(&json!({
+            "type": "content_block_start", "index": 0,
+            "content_block": {"type": "tool_use", "id": "toolu_1", "name": "get_weather", "input": {}}
+        }));
+        assert_eq!(scanner.push(&Bytes::from(start)), SentinelVerdict::Clean);
+    }
+
+    #[test]
+    fn scanner_releases_stream_on_leading_thinking_block() {
+        let mut scanner = SseTextScanner::new(S.to_string());
+        let start = sse_line(&json!({
+            "type": "content_block_start", "index": 0,
+            "content_block": {"type": "thinking", "thinking": ""}
+        }));
+        assert_eq!(scanner.push(&Bytes::from(start)), SentinelVerdict::Clean);
+    }
+
+    #[test]
+    fn scanner_rules_out_partial_prefix_followed_by_non_text_block() {
+        let mut scanner = SseTextScanner::new(S.to_string());
+        let delta = sse_line(&json!({
+            "type": "content_block_delta", "index": 0,
+            "delta": {"type": "text_delta", "text": "<<ESC"}
+        }));
+        assert_eq!(
+            scanner.push(&Bytes::from(delta)),
+            SentinelVerdict::Undetermined
+        );
+        let start = sse_line(&json!({
+            "type": "content_block_start", "index": 1,
+            "content_block": {"type": "tool_use", "id": "toolu_1", "name": "get_weather", "input": {}}
+        }));
+        assert_eq!(scanner.push(&Bytes::from(start)), SentinelVerdict::Clean);
     }
 
     #[test]

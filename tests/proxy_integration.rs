@@ -769,6 +769,64 @@ async fn sse_clean_response_streams_through_verbatim() {
 }
 
 #[tokio::test]
+async fn sse_ending_while_undetermined_delivers_buffered_body() {
+    let local = MockServer::start().await;
+    let cloud = MockServer::start().await;
+
+    // The only text delta is a proper prefix of the sentinel, so the verdict
+    // stays Undetermined for the whole stream; the stream ends without ever
+    // resolving to Sentinel or Clean.
+    let full_body = "event: message_start\n\
+         data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\"}}\n\n\
+         event: content_block_start\n\
+         data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n\
+         event: content_block_delta\n\
+         data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"<<ESC\"}}\n\n\
+         event: message_stop\n\
+         data: {\"type\":\"message_stop\"}\n\n"
+        .to_string();
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw(full_body.clone(), "text/event-stream"),
+        )
+        .expect(1)
+        .mount(&local)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(0)
+        .mount(&cloud)
+        .await;
+
+    let cfg = Config::from_toml_str(&orchestrated_config_toml(
+        &local.uri(),
+        &cloud.uri(),
+        10,
+        "cloud",
+    ))
+    .unwrap();
+    let app = proxy::router(build_state(cfg).unwrap());
+
+    let (status, body, content_type) = send_raw(
+        app,
+        json!({
+            "model": "m", "stream": true,
+            "messages": [{"role": "user", "content": "partial sentinel prefix question"}]
+        }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(content_type.contains("text/event-stream"));
+    // The buffered body is released byte-for-byte once the stream ends.
+    assert_eq!(body, full_body);
+}
+
+#[tokio::test]
 async fn local_http_error_escalates_when_fail_mode_cloud() {
     let local = MockServer::start().await;
     let cloud = MockServer::start().await;
