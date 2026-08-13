@@ -1,0 +1,6 @@
+target/
+.git/
+.superpowers/
+docs/
+README_tmp.html
+.env
