@@ -15,7 +15,7 @@ services:
       retries: 3
       start_period: 5s
     restart: unless-stopped
-    networks: [proxy]
+    networks: [proxy, metrics]
 
   open-webui:
     image: ghcr.io/open-webui/open-webui:main
@@ -31,9 +31,36 @@ services:
     restart: unless-stopped
     networks: [webui]
 
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks: [metrics, grafana]
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "127.0.0.1:3001:3000" # 3000 is taken by open-webui on the host
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-admin}"
+    volumes:
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    networks: [grafana] # reaches ONLY prometheus — never the proxy or open-webui
+    restart: unless-stopped
+
 networks:
   proxy: {}
   webui: {}
+  metrics: {}
+  grafana: {}
 
 volumes:
   open-webui-data:
+  prometheus-data:
+  grafana-data:

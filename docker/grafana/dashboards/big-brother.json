@@ -1,0 +1,103 @@
+{
+  "uid": "big-brother",
+  "title": "Big Brother",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Request rate by provider",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (provider) (rate(bb_requests_total[5m]))",
+          "legendFormat": "{{provider}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Latency p50 / p95",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (le, provider) (rate(bb_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "p50 {{provider}}"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le, provider) (rate(bb_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95 {{provider}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Escalations by trigger (15m)",
+      "gridPos": { "x": 0, "y": 8, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (trigger) (increase(bb_escalations_total[15m]))",
+          "legendFormat": "{{trigger}}"
+        },
+        {
+          "refId": "B",
+          "expr": "increase(bb_budget_denied_total[15m])",
+          "legendFormat": "budget_denied"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Cloud budget (last hour)",
+      "gridPos": { "x": 8, "y": 8, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "bb_cloud_budget_used", "legendFormat": "used" },
+        { "refId": "B", "expr": "bb_cloud_budget_max", "legendFormat": "max" }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Sticky cloud conversations",
+      "gridPos": { "x": 16, "y": 8, "w": 8, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "bb_sticky_conversations", "legendFormat": "sticky" }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Error rate by provider",
+      "gridPos": { "x": 16, "y": 12, "w": 8, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (provider) (rate(bb_requests_total{outcome!=\"ok\"}[5m]))",
+          "legendFormat": "{{provider}}"
+        }
+      ]
+    }
+  ]
+}
