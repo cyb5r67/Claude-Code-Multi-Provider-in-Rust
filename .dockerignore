@@ -4,3 +4,7 @@ target/
 docs/
 README_tmp.html
 .env
+.claude/
+config.toml
+docker/
+.env.example

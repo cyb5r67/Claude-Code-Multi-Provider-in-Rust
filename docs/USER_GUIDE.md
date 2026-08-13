@@ -188,7 +188,8 @@ it (`curl http://127.0.0.1:8787/status`).
 
 ## Running with Docker
 
-Requires Docker Desktop (or any Docker Engine with Compose v2).
+Requires Docker Desktop (or Docker Engine with Compose v2.24+; the compose
+file uses the long-form optional `env_file` syntax).
 
 ```sh
 copy .env.example .env        # Windows (cp on Linux/macOS); fill in your keys
@@ -207,8 +208,9 @@ your network even though the proxy binds `0.0.0.0` inside its container.
 
 - **Config:** the container reads `docker/config.toml` (not the repo-root
   `config.toml`). Edit it, then `docker compose restart big-brother`.
-- **Keys** come from `.env` (gitignored). `docker compose up` picks up edits
-  after a `docker compose up -d` again.
+- **Keys** come from `.env` (gitignored). After editing `.env`, run
+  `docker compose up -d` again — env changes need a container recreate
+  (`docker compose restart` applies only `docker/config.toml` edits).
 - **LM Studio stays on your LAN machine** — containers reach it by IP.
   Update the IP in both `docker/config.toml` (proxy) and `.env`'s
   `LMSTUDIO_HOST` (Open WebUI), and keep LM Studio's **Serve on Local

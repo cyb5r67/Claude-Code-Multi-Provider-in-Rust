@@ -38,6 +38,8 @@ process-flow and module diagrams (Mermaid).
   [user guide](docs/USER_GUIDE.md#hierarchical-orchestrator-local-first-with-cloud-escalation).
 - `GET /panel` — a read-only status page (orchestrator state, budget, recent
   escalations); `GET /status` serves the same data as JSON.
+- Runs natively (`cargo run`) or as a Docker Compose stack bundled with
+  [Open WebUI](https://github.com/open-webui/open-webui) — see Usage.
 
 ## Configuration
 
