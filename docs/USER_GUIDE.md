@@ -146,6 +146,20 @@ Rules of thumb:
 - Local attempts are sent with the local provider's configured `model`;
   escalations are sent with `escalation_model`.
 
+### Limitations
+
+- **Pass-through model ids are orchestrated.** Only a model id naming a
+  configured provider (`/model anthropic/claude-opus-5`) bypasses
+  orchestration. A slash id whose prefix is *not* a configured provider
+  (e.g. `/model x-ai/grok-code-fast-1`) is treated as default-routed and
+  will be answered by the orchestrator's tiers — the id itself is replaced
+  by the tier's model. To force a specific upstream, name a configured
+  provider.
+- **No dedicated first-token timeout.** A hung (but connected) local server
+  is only rescued by the global `request_timeout_secs` (default 300s),
+  after which `fail_mode` applies. Lower `request_timeout_secs` if a wedged
+  local tier should fail over faster.
+
 ---
 
 ## Example: local LM Studio hosts
