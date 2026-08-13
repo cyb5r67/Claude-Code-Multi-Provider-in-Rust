@@ -19,6 +19,8 @@ pub struct Config {
     pub providers: BTreeMap<String, Provider>,
     #[serde(default)]
     pub orchestrator: Option<OrchestratorConfig>,
+    #[serde(default)]
+    pub chat: Option<ChatConfig>,
 }
 
 /// HTTP server + upstream request settings.
@@ -104,6 +106,35 @@ pub struct OrchestratorConfig {
     pub max_cloud_requests_per_hour: u32,
     #[serde(default)]
     pub fail_mode: FailMode,
+}
+
+/// Settings for the OpenAI-dialect chat endpoint (Open WebUI front door).
+#[derive(Debug, Clone, Deserialize)]
+pub struct ChatConfig {
+    /// Route chat traffic through the routing/cascade pipeline (true) or pass
+    /// it straight through to the local OpenAI-dialect endpoint (false).
+    #[serde(default = "default_true")]
+    pub pipeline_enabled: bool,
+    /// "cascade" or an explicit "provider/model" routing target.
+    #[serde(default = "default_chat_target")]
+    pub model_override: String,
+    /// OpenAI-dialect endpoint used in passthrough mode (LM Studio's
+    /// /v1/chat/completions -- NOT the Anthropic-dialect provider base_url).
+    pub passthrough_url: String,
+    /// Model id written into passthrough requests (the client sends the
+    /// virtual "big-brother" id, meaningless upstream).
+    pub passthrough_model: String,
+    /// Where panel edits are persisted. Relative paths resolve against the
+    /// process working directory.
+    #[serde(default = "default_chat_state_file")]
+    pub state_file: String,
+}
+
+fn default_chat_target() -> String {
+    "cascade".to_string()
+}
+fn default_chat_state_file() -> String {
+    "chat_state.json".to_string()
 }
 
 fn default_host() -> String {
@@ -373,6 +404,74 @@ mod tests {
         assert_eq!(orch.sentinel, "<<ESCALATE>>");
         assert_eq!(orch.max_cloud_requests_per_hour, 50);
         assert_eq!(orch.fail_mode, FailMode::Cloud);
+    }
+
+    #[test]
+    fn chat_section_is_optional_and_none_by_default() {
+        let toml = r#"
+            [default]
+            provider = "a"
+            model = "m"
+
+            [providers.a]
+            base_url = "http://a.test/v1/messages"
+            api_key_env = "A_KEY"
+        "#;
+        let cfg = Config::from_toml_str(toml).expect("should parse");
+        assert!(cfg.chat.is_none());
+    }
+
+    #[test]
+    fn chat_section_parses_with_defaults() {
+        let toml = r#"
+            [default]
+            provider = "a"
+            model = "m"
+
+            [chat]
+            passthrough_url = "http://lan.test:8088/v1/chat/completions"
+            passthrough_model = "qwen3.6:27b"
+
+            [providers.a]
+            base_url = "http://a.test/v1/messages"
+            api_key_env = "A_KEY"
+        "#;
+        let chat = Config::from_toml_str(toml)
+            .unwrap()
+            .chat
+            .expect("section present");
+        assert!(chat.pipeline_enabled);
+        assert_eq!(chat.model_override, "cascade");
+        assert_eq!(
+            chat.passthrough_url,
+            "http://lan.test:8088/v1/chat/completions"
+        );
+        assert_eq!(chat.passthrough_model, "qwen3.6:27b");
+        assert_eq!(chat.state_file, "chat_state.json");
+    }
+
+    #[test]
+    fn chat_overrides_parse() {
+        let toml = r#"
+            [default]
+            provider = "a"
+            model = "m"
+
+            [chat]
+            pipeline_enabled = false
+            model_override = "a/m2"
+            passthrough_url = "http://lan.test:8088/v1/chat/completions"
+            passthrough_model = "q"
+            state_file = "/data/chat_state.json"
+
+            [providers.a]
+            base_url = "http://a.test/v1/messages"
+            api_key_env = "A_KEY"
+        "#;
+        let chat = Config::from_toml_str(toml).unwrap().chat.unwrap();
+        assert!(!chat.pipeline_enabled);
+        assert_eq!(chat.model_override, "a/m2");
+        assert_eq!(chat.state_file, "/data/chat_state.json");
     }
 
     #[test]
