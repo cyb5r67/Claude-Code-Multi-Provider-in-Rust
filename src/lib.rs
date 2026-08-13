@@ -1,6 +1,7 @@
 //! Big Brother: a local reverse proxy that routes Claude Code requests to
 //! multiple LLM providers, with in-session `/model <provider>/<model>` switching.
 
+pub mod chat_settings;
 pub mod config;
 pub mod error;
 pub mod metrics;

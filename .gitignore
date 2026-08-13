@@ -3,3 +3,6 @@
 # Local Claude Code settings (not for publication)
 /.claude/
 .env
+
+# Panel-edited chat settings, persisted at runtime
+chat_state.json
