@@ -238,7 +238,7 @@ What comes up:
 | Service | Address | Purpose |
 |---------|---------|---------|
 | `big-brother` | <http://localhost:8787> | The proxy — Claude Code target, panel at `/panel` |
-| `open-webui`  | <http://localhost:3000> | Chat UI talking straight to LM Studio (OpenAI dialect) |
+| `open-webui`  | <http://localhost:3000> | Chat UI, routed through the proxy (see [Chat window](#chat-window-open-webui)) |
 | `prometheus`  | <http://localhost:9090> | Scrapes the proxy's `/metrics` every 15 s |
 | `grafana`     | <http://localhost:3001> | Dashboard over Prometheus (`admin` / `GRAFANA_ADMIN_PASSWORD`) |
 
@@ -251,9 +251,10 @@ your network even though the proxy binds `0.0.0.0` inside its container.
   `docker compose up -d` again — env changes need a container recreate
   (`docker compose restart` applies only `docker/config.toml` edits).
 - **LM Studio stays on your LAN machine** — containers reach it by IP.
-  Update the IP in both `docker/config.toml` (proxy) and `.env`'s
-  `LMSTUDIO_HOST` (Open WebUI), and keep LM Studio's **Serve on Local
-  Network** enabled.
+  Set that IP in `docker/config.toml` in **two** places —
+  `[providers.qwen] base_url` (Anthropic dialect, for the pipeline) and
+  `[chat] passthrough_url` (OpenAI dialect, for passthrough mode) — and keep
+  LM Studio's **Serve on Local Network** enabled.
 - **Logs:** `docker compose logs -f big-brother` shows the same tracing
   output as a native run, escalation audit lines included.
 - **Stop:** `docker compose down` (add `-v` to also wipe Open WebUI,

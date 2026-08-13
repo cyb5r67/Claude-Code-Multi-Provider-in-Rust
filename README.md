@@ -8,10 +8,15 @@ This is a Rust rewrite (axum + reqwest + serde + tracing) of the original
 [`simple-proxy.py`](https://gist.github.com/spideynolove/13785891385ed6916619ebb991b490b9)
 (FastAPI/httpx).
 
-See [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for the full configuration
-reference, model-switching semantics, an LM Studio example, and
-troubleshooting. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for
-process-flow and module diagrams (Mermaid).
+## Documentation
+
+| Document | For | Contents |
+|----------|-----|----------|
+| [Getting Started](docs/GETTING_STARTED.md) | New users | Five-minute setup, both front doors, the control panel, everyday tasks, troubleshooting |
+| [User Guide](docs/USER_GUIDE.md) | Users | Full configuration reference, model-switching semantics, the orchestrator, LM Studio examples |
+| [Architecture](docs/ARCHITECTURE.md) | Engineers | Process-flow and module diagrams (Mermaid) |
+| [Developer Guide](docs/DEVELOPER_GUIDE.md) | Contributors, operators | Codebase map, invariants, testing conventions, observability, runbook |
+| [Product Brief](docs/PRODUCT_BRIEF.md) | Marketing, non-technical | Positioning, capabilities, messaging, claims discipline |
 
 ## How it works
 
@@ -89,7 +94,8 @@ docker compose up -d --build
 
 The proxy listens on <http://localhost:8787> (status panel at `/panel`) and
 [Open WebUI](https://github.com/open-webui/open-webui) on
-<http://localhost:3000> for chatting with your LM Studio models directly.
+<http://localhost:3000> as a browser chat window, routed through the proxy and
+controlled from the panel's Chat card.
 Edit `docker/config.toml` and `docker compose restart big-brother` to apply
 config changes. Claude Code connects exactly as above.
 Prometheus runs at <http://localhost:9090> and a pre-provisioned Grafana
