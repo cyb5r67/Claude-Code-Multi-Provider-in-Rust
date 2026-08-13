@@ -16,9 +16,11 @@ Where the proxy sits between Claude Code and the upstream providers.
 ```mermaid
 flowchart LR
     CC["Claude Code CLI<br/>ANTHROPIC_BASE_URL=<br/>http://localhost:8787"]
+    OW["Open WebUI<br/>(browser chat window)"]
 
     subgraph proxy["Big Brother (127.0.0.1:8787)"]
         H1["POST /v1/messages"]
+        H3["POST /v1/chat/completions<br/>GET /v1/models"]
         H2["GET /health"]
     end
 
@@ -32,6 +34,8 @@ flowchart LR
     CFG["config.toml<br/>+ API-key env vars"]
 
     CC -- "Anthropic Messages API" --> H1
+    OW -- "OpenAI chat API" --> H3
+    H3 -- "translated to the Anthropic<br/>dialect, same routing pipeline<br/>(or passthrough to LM Studio)" --> H1
     CFG -. "loaded at startup" .-> proxy
     H1 -- "routed by default, by the<br/>request's model field, or by a<br/>legacy /model text command" --> P1 & P2 & P3 & P4
 ```
@@ -51,15 +55,22 @@ flowchart TD
     proxy["proxy.rs<br/>router, resolve_route,<br/>/v1/messages, /health, AppState"]
     model["model_command.rs<br/>parse_and_strip legacy<br/>/model text command"]
     error["error.rs<br/>AppError -> HTTP response"]
+    chatproxy["chat_proxy.rs<br/>/v1/chat/completions, /v1/models,<br/>/chat/settings"]
+    compat["openai_compat.rs<br/>OpenAI ⇄ Anthropic translation<br/>(JSON + SSE)"]
+    chatset["chat_settings.rs<br/>panel-editable settings,<br/>JSON state file"]
 
     main --> lib
     main --> config
     main --> proxy
     lib --> config
     lib --> proxy
+    lib --> chatset
     proxy --> config
     proxy --> model
     proxy --> error
+    proxy --> chatproxy
+    chatproxy --> compat
+    chatproxy --> chatset
     config -. "ConfigError (thiserror)" .-> error
 ```
 
@@ -253,6 +264,37 @@ flowchart LR
     end
     PE --> FWD["forwarded as-is<br/>(logged at warn)"]
 ```
+
+---
+
+## 8. Chat front door — `POST /v1/chat/completions`
+
+Open WebUI (or any OpenAI-dialect client) chats through the proxy. The panel's
+Chat card decides at runtime whether traffic enters the pipeline or passes
+through, and which target it routes to; choices persist to a JSON state file.
+
+```mermaid
+flowchart TD
+    OW["Open WebUI<br/>POST /v1/chat/completions"] --> CP["chat_proxy.rs"]
+    CP --> SET{"ChatSettings<br/>pipeline_enabled?"}
+
+    SET -- "off" --> PT["passthrough: rewrite model id,<br/>forward verbatim to<br/>LM Studio /v1/chat/completions"]
+    PT --> OWR["response streams back untouched"]
+
+    SET -- "on" --> TR["openai_compat:<br/>OpenAI → Anthropic request"]
+    TR --> TGT{"model_override"}
+    TGT -- "cascade" --> CAS["proxy::cascade<br/>(local first, sentinel escalation,<br/>shared cloud budget)"]
+    TGT -- "provider/model" --> FWD["proxy::forward<br/>direct to that provider"]
+    CAS --> BACK["openai_compat:<br/>Anthropic → OpenAI response<br/>(JSON buffered, SSE via SseTranslator)"]
+    FWD --> BACK
+    BACK --> OWR2["chat.completion /<br/>chat.completion.chunk + [DONE]"]
+```
+
+Errors on the chat routes are always OpenAI-shaped
+(`{"error": {"message", "type", "code"}}`), whatever failed underneath.
+`GET /v1/models` advertises a single virtual `big-brother` model so the
+client's model picker cannot fight the panel. When `config.toml` has no
+`[chat]` section, all chat routes return 404 and the panel hides the card.
 
 ---
 

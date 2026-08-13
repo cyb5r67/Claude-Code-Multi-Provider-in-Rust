@@ -16,6 +16,13 @@ request_timeout_secs = 300
 provider = "qwen"
 model = "qwen3.6:27b"
 
+[chat]
+# The Open WebUI front door. pipeline_enabled/model_override are DEFAULTS --
+# the panel's Chat card edits them at runtime and persists to state_file.
+passthrough_url = "http://192.168.1.10:8088/v1/chat/completions"
+passthrough_model = "qwen3.6:27b"
+state_file = "/app/data/chat_state.json"
+
 [providers.qwen]
 # LM Studio on the LAN host (Developer tab -> Serve on Local Network).
 # Adjust the IP/port to your machine.

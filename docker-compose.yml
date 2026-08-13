@@ -8,6 +8,7 @@ services:
         required: false
     volumes:
       - ./docker/config.toml:/app/config/config.toml:ro
+      - big-brother-data:/app/data # persisted chat settings (panel edits)
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8787/health"]
       interval: 15s
@@ -22,14 +23,15 @@ services:
     ports:
       - "127.0.0.1:3000:8080"
     environment:
-      # Open WebUI speaks the OpenAI dialect straight to LM Studio -- it does
-      # not go through Big Brother (which speaks the Anthropic dialect).
-      OPENAI_API_BASE_URL: "${LMSTUDIO_HOST:-http://192.168.1.10:8088}/v1"
-      OPENAI_API_KEY: "lm-studio"
+      # Open WebUI talks OpenAI dialect to Big Brother, which routes it
+      # through the cascade pipeline (or passes through to LM Studio -- see
+      # the Chat card on the panel at http://localhost:8787/panel).
+      OPENAI_API_BASE_URL: "http://big-brother:8787/v1"
+      OPENAI_API_KEY: "big-brother"
     volumes:
       - open-webui-data:/app/backend/data
     restart: unless-stopped
-    networks: [webui]
+    networks: [webui, proxy]
 
   prometheus:
     image: prom/prometheus:latest
@@ -61,6 +63,7 @@ networks:
   grafana: {}
 
 volumes:
+  big-brother-data:
   open-webui-data:
   prometheus-data:
   grafana-data:

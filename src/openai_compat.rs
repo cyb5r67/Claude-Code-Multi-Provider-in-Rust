@@ -223,11 +223,9 @@ impl SseTranslator {
                         finish_reason(event.pointer("/delta/stop_reason").and_then(Value::as_str));
                     out.extend(self.chunk(json!({}), Some(reason)));
                 }
-                Some("message_stop") => {
-                    if !self.done_sent {
-                        out.extend_from_slice(b"data: [DONE]\n\n");
-                        self.done_sent = true;
-                    }
+                Some("message_stop") if !self.done_sent => {
+                    out.extend_from_slice(b"data: [DONE]\n\n");
+                    self.done_sent = true;
                 }
                 _ => {}
             }

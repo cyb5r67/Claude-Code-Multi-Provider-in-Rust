@@ -31,6 +31,13 @@ process-flow and module diagrams (Mermaid).
     plain-string and content-block message shapes are handled.
   - Responses stream straight through (SSE and JSON alike), preserving the
     upstream status and content type.
+- `POST /v1/chat/completions` + `GET /v1/models` — an OpenAI-dialect front
+  door for chat clients (Open WebUI in the bundled stack). Requests are
+  translated to the Anthropic dialect and enter the same routing/cascade
+  pipeline as Claude Code traffic, or pass straight through to the local
+  OpenAI endpoint — controlled at runtime from the panel's Chat card
+  (`GET`/`PUT /chat/settings`, persisted across restarts). Requires a
+  `[chat]` section in `config.toml`.
 - `GET /health` — returns `{"status":"ok"}`.
 - Optional **hierarchical orchestrator**: answer conversations with a local
   model first and transparently escalate to a cloud model when the local tier
@@ -118,6 +125,9 @@ Logging is controlled by `RUST_LOG` (default `info`), e.g. `RUST_LOG=debug`.
 | `src/config.rs`       | TOML config model, loading, API-key resolution        |
 | `src/model_command.rs`| Parse & strip legacy `/model` text commands           |
 | `src/proxy.rs`        | Router, `/v1/messages` forwarding, `/health`          |
+| `src/chat_proxy.rs`   | OpenAI-dialect chat routes (`/v1/chat/completions`)   |
+| `src/openai_compat.rs`| OpenAI ⇄ Anthropic dialect translation (JSON + SSE)  |
+| `src/chat_settings.rs`| Panel-editable chat settings, persisted to disk       |
 | `src/orchestrator.rs` | Escalation state: sticky map, budget, history      |
 | `src/stream.rs`       | Sentinel detection over SSE/JSON responses          |
 | `src/panel.html`      | Embedded status panel served at `/panel`            |

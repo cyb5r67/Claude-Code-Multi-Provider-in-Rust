@@ -186,6 +186,43 @@ it (`curl http://127.0.0.1:8787/status`).
 
 ---
 
+## Chat window (Open WebUI)
+
+With a `[chat]` section in the config, the proxy exposes an OpenAI-dialect
+front door (`POST /v1/chat/completions`, `GET /v1/models`) so a browser chat
+client can use the same routing machinery as Claude Code. In the Docker
+stack, Open WebUI (<http://localhost:3000>) is pre-wired to it.
+
+```toml
+[chat]
+passthrough_url = "http://192.168.1.10:8088/v1/chat/completions"
+passthrough_model = "qwen3.6:27b"
+# pipeline_enabled = true      # default
+# model_override = "cascade"   # default
+# state_file = "chat_state.json"
+```
+
+Control it from the panel's **Chat** card (no restart needed):
+
+- **pipeline** toggle — ON sends chat through routing/cascade/escalation
+  (sharing the hourly cloud budget with Claude Code traffic); OFF forwards
+  requests straight to `passthrough_url` with only the model id rewritten
+  to `passthrough_model`.
+- **target** dropdown — `cascade` (local-first with escalation, or the
+  default provider when no orchestrator is configured) or a specific
+  `provider/model` to pin chat to one upstream.
+
+Panel edits persist to `state_file` and survive restarts; the `[chat]`
+values are only first-run defaults. Open WebUI's own model picker shows a
+single `big-brother` model by design — routing is decided here, not there.
+Tool calling and images are not supported through the chat endpoint.
+
+Note: `PUT /chat/settings` is the panel's first mutating endpoint. The
+panel is unauthenticated, which stays acceptable only while the proxy is
+reachable from localhost alone — don't widen the bind without adding auth.
+
+---
+
 ## Running with Docker
 
 Requires Docker Desktop (or Docker Engine with Compose v2.24+; the compose
