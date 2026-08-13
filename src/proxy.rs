@@ -13,6 +13,7 @@ use serde_json::{json, Value};
 
 use crate::config::{AuthStyle, Config, FailMode};
 use crate::error::AppError;
+use crate::metrics;
 use crate::metrics::Metrics;
 use crate::model_command;
 use crate::orchestrator::{self, Orchestrator, Tier};
@@ -187,6 +188,11 @@ async fn messages_proxy(State(state): State<AppState>, body: Bytes) -> Result<Re
         }
     }
 
+    state
+        .metrics
+        .tier_requests_total
+        .with_label_values(&[metrics::TIER_STATIC])
+        .inc();
     forward(&state, &provider_key, &payload).await
 }
 
@@ -221,6 +227,11 @@ async fn cascade(
         &orchestrator::sentinel_instruction(&orch.cfg.sentinel),
     );
 
+    state
+        .metrics
+        .tier_requests_total
+        .with_label_values(&[metrics::TIER_LOCAL])
+        .inc();
     match local_attempt(state, orch, &attempt).await {
         Ok(LocalOutcome::Clean(response)) => Ok(response),
         Ok(LocalOutcome::Escalate) => {
@@ -278,6 +289,12 @@ async fn escalate(
             .and_then(|p| p.model.clone())
             .unwrap_or_default();
         orch.record_escalation("budget_denied", &orch.cfg.local_provider, &local_model, key);
+        state.metrics.budget_denied_total.inc();
+        state
+            .metrics
+            .tier_requests_total
+            .with_label_values(&[metrics::TIER_LOCAL])
+            .inc();
         let mut fallback = original.clone();
         set_local_model(state, orch, &mut fallback);
         orchestrator::append_system_note(&mut fallback, orchestrator::ESCALATION_UNAVAILABLE_NOTE);
@@ -303,6 +320,16 @@ async fn escalate(
         &orch.cfg.escalation_model,
         key,
     );
+    state
+        .metrics
+        .escalations_total
+        .with_label_values(&[trigger])
+        .inc();
+    state
+        .metrics
+        .tier_requests_total
+        .with_label_values(&[metrics::TIER_CLOUD])
+        .inc();
     forward(state, &orch.cfg.escalation_provider, &cloud).await
 }
 
@@ -327,7 +354,8 @@ async fn local_attempt(
         env: provider.api_key_env.clone(),
     })?;
 
-    let upstream = apply_auth(
+    let started = std::time::Instant::now();
+    let upstream = match apply_auth(
         state.client.post(&provider.base_url),
         provider.auth_style,
         &api_key,
@@ -335,10 +363,20 @@ async fn local_attempt(
     .json(attempt)
     .send()
     .await
-    .map_err(|source| AppError::Upstream {
-        provider: provider_key.clone(),
-        source,
-    })?;
+    {
+        Ok(resp) => resp,
+        Err(source) => {
+            state.metrics.observe_request(
+                provider_key,
+                metrics::OUTCOME_TRANSPORT_ERROR,
+                started.elapsed(),
+            );
+            return Err(AppError::Upstream {
+                provider: provider_key.clone(),
+                source,
+            });
+        }
+    };
 
     let status = upstream.status();
     let content_type = upstream
@@ -348,6 +386,11 @@ async fn local_attempt(
         .unwrap_or_else(|| "application/json".parse().unwrap());
 
     if !status.is_success() {
+        state.metrics.observe_request(
+            provider_key,
+            metrics::OUTCOME_UPSTREAM_ERROR,
+            started.elapsed(),
+        );
         let bytes = upstream.bytes().await.unwrap_or_default();
         let preview = String::from_utf8_lossy(&bytes[..bytes.len().min(2048)]);
         tracing::warn!(provider = %provider_key, %status, body = %preview, "local tier returned error status");
@@ -356,6 +399,10 @@ async fn local_attempt(
         response.headers_mut().insert(CONTENT_TYPE, content_type);
         return Ok(LocalOutcome::Failed(response.into_response()));
     }
+
+    state
+        .metrics
+        .observe_request(provider_key, metrics::OUTCOME_OK, started.elapsed());
 
     let is_sse = content_type
         .to_str()
@@ -445,7 +492,8 @@ pub(crate) async fn forward(
 
     tracing::info!(provider = %provider_key, base_url = %provider.base_url, "forwarding request");
 
-    let upstream = apply_auth(
+    let started = std::time::Instant::now();
+    let upstream = match apply_auth(
         state.client.post(&provider.base_url),
         provider.auth_style,
         &api_key,
@@ -453,10 +501,20 @@ pub(crate) async fn forward(
     .json(payload)
     .send()
     .await
-    .map_err(|source| AppError::Upstream {
-        provider: provider_key.to_string(),
-        source,
-    })?;
+    {
+        Ok(resp) => resp,
+        Err(source) => {
+            state.metrics.observe_request(
+                provider_key,
+                metrics::OUTCOME_TRANSPORT_ERROR,
+                started.elapsed(),
+            );
+            return Err(AppError::Upstream {
+                provider: provider_key.to_string(),
+                source,
+            });
+        }
+    };
 
     let status = upstream.status();
     let content_type = upstream
@@ -466,6 +524,11 @@ pub(crate) async fn forward(
         .unwrap_or_else(|| "application/json".parse().unwrap());
 
     if !status.is_success() {
+        state.metrics.observe_request(
+            provider_key,
+            metrics::OUTCOME_UPSTREAM_ERROR,
+            started.elapsed(),
+        );
         let bytes = upstream.bytes().await.unwrap_or_default();
         let preview = String::from_utf8_lossy(&bytes[..bytes.len().min(2048)]);
         tracing::warn!(provider = %provider_key, %status, body = %preview, "upstream returned error status");
@@ -474,6 +537,10 @@ pub(crate) async fn forward(
         response.headers_mut().insert(CONTENT_TYPE, content_type);
         return Ok(response.into_response());
     }
+
+    state
+        .metrics
+        .observe_request(provider_key, metrics::OUTCOME_OK, started.elapsed());
 
     let stream = upstream.bytes_stream();
     let mut response = Response::new(Body::from_stream(stream));

@@ -1079,3 +1079,129 @@ async fn metrics_endpoint_serves_prometheus_text() {
     assert!(text.contains("bb_sticky_conversations 0"));
     assert!(text.contains("bb_budget_denied_total 0"));
 }
+
+/// True when a series line for `name` carries every label pair and the value.
+fn has_series(text: &str, name: &str, labels: &[(&str, &str)], value: &str) -> bool {
+    text.lines().any(|l| {
+        l.starts_with(name)
+            && labels
+                .iter()
+                .all(|(k, v)| l.contains(&format!(r#"{k}="{v}""#)))
+            && l.ends_with(&format!(" {value}"))
+    })
+}
+
+async fn get_text(app: axum::Router, uri: &str) -> String {
+    let req = Request::builder()
+        .method("GET")
+        .uri(uri)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    String::from_utf8_lossy(&bytes).to_string()
+}
+
+#[tokio::test]
+async fn metrics_reflect_a_sentinel_escalation() {
+    let local = MockServer::start().await;
+    let cloud = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(sentinel_json_response()))
+        .expect(1)
+        .mount(&local)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"routed": "cloud"})))
+        .expect(1)
+        .mount(&cloud)
+        .await;
+
+    let cfg = Config::from_toml_str(&orchestrated_config_toml(
+        &local.uri(),
+        &cloud.uri(),
+        10,
+        "cloud",
+    ))
+    .unwrap();
+    let state = build_state(cfg).unwrap();
+
+    let (s1, _) = send(
+        proxy::router(state.clone()),
+        json!({"model": "m", "messages": [{"role": "user", "content": "hard question"}]}),
+    )
+    .await;
+    assert_eq!(s1, StatusCode::OK);
+
+    let text = get_text(proxy::router(state), "/metrics").await;
+    assert!(has_series(
+        &text,
+        "bb_tier_requests_total",
+        &[("tier", "local")],
+        "1"
+    ));
+    assert!(has_series(
+        &text,
+        "bb_tier_requests_total",
+        &[("tier", "cloud")],
+        "1"
+    ));
+    assert!(has_series(
+        &text,
+        "bb_escalations_total",
+        &[("trigger", "sentinel")],
+        "1"
+    ));
+    assert!(has_series(
+        &text,
+        "bb_requests_total",
+        &[("provider", "local"), ("outcome", "ok")],
+        "1"
+    ));
+    assert!(has_series(
+        &text,
+        "bb_requests_total",
+        &[("provider", "cloud"), ("outcome", "ok")],
+        "1"
+    ));
+    assert!(text.contains("bb_cloud_budget_used 1"));
+    assert!(text.contains("bb_sticky_conversations 1"));
+}
+
+#[tokio::test]
+async fn metrics_count_static_routing_and_upstream_errors() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(500).set_body_json(json!({"error": "boom"})))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let cfg = Config::from_toml_str(&config_toml(&server.uri(), &server.uri())).unwrap();
+    let state = build_state(cfg).unwrap();
+
+    let (status, _) = send(
+        proxy::router(state.clone()),
+        json!({"model": "m", "messages": [{"role": "user", "content": "hi"}]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+
+    let text = get_text(proxy::router(state), "/metrics").await;
+    assert!(has_series(
+        &text,
+        "bb_tier_requests_total",
+        &[("tier", "static")],
+        "1"
+    ));
+    assert!(has_series(
+        &text,
+        "bb_requests_total",
+        &[("provider", "primary"), ("outcome", "upstream_error")],
+        "1"
+    ));
+}
