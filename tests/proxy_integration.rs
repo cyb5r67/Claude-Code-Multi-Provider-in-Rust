@@ -298,3 +298,48 @@ async fn unknown_provider_returns_400() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert!(body["error"].as_str().unwrap().contains("nope"));
 }
+
+/// Providers with auth_style = "anthropic" get x-api-key + anthropic-version
+/// headers (api.anthropic.com rejects requests without the version header).
+#[tokio::test]
+async fn anthropic_auth_style_sends_version_header() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(header("x-api-key", "anthropic-secret"))
+        .and(header("anthropic-version", "2023-06-01"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"routed": "anthropic"})))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    std::env::set_var("IT_ANTHROPIC_KEY", "anthropic-secret");
+    let toml = format!(
+        r#"
+        [default]
+        provider = "anthropic"
+        model = "claude-opus-5"
+
+        [providers.anthropic]
+        base_url = "{}/v1/messages"
+        api_key_env = "IT_ANTHROPIC_KEY"
+        auth_style = "anthropic"
+        "#,
+        server.uri()
+    );
+    let cfg = Config::from_toml_str(&toml).unwrap();
+    let app = proxy::router(build_state(cfg).unwrap());
+
+    let (status, body) = send(
+        app,
+        json!({
+            "model": "claude-opus-5",
+            "messages": [{"role": "user", "content": "hello"}]
+        }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, json!({"routed": "anthropic"}));
+}

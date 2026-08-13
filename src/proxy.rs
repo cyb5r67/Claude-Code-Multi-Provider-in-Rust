@@ -10,7 +10,7 @@ use axum::{Json, Router};
 use reqwest::header::CONTENT_TYPE;
 use serde_json::{json, Value};
 
-use crate::config::Config;
+use crate::config::{AuthStyle, Config};
 use crate::error::AppError;
 use crate::model_command;
 
@@ -33,6 +33,22 @@ pub fn router(state: AppState) -> Router {
 /// Simple health check.
 async fn health() -> Json<Value> {
     Json(json!({ "status": "ok" }))
+}
+
+/// Attach the provider's authentication headers to an outgoing request.
+pub(crate) fn apply_auth(
+    req: reqwest::RequestBuilder,
+    style: AuthStyle,
+    api_key: &str,
+) -> reqwest::RequestBuilder {
+    match style {
+        AuthStyle::Bearer => req
+            .header("authorization", format!("Bearer {api_key}"))
+            .header("x-api-key", api_key),
+        AuthStyle::Anthropic => req
+            .header("x-api-key", api_key)
+            .header("anthropic-version", "2023-06-01"),
+    }
 }
 
 /// Decide the target `(provider_key, model)` for a request and normalize the
@@ -101,18 +117,18 @@ async fn messages_proxy(State(state): State<AppState>, body: Bytes) -> Result<Re
 
     // Forward upstream. `.json()` serializes the (mutated) payload and sets
     // Content-Type; we add the auth headers the various providers expect.
-    let upstream = state
-        .client
-        .post(&provider.base_url)
-        .header("authorization", format!("Bearer {api_key}"))
-        .header("x-api-key", &api_key) // y-router compatibility
-        .json(&payload)
-        .send()
-        .await
-        .map_err(|source| AppError::Upstream {
-            provider: provider_key.clone(),
-            source,
-        })?;
+    let upstream = apply_auth(
+        state.client.post(&provider.base_url),
+        provider.auth_style,
+        &api_key,
+    )
+    .json(&payload)
+    .send()
+    .await
+    .map_err(|source| AppError::Upstream {
+        provider: provider_key.clone(),
+        source,
+    })?;
 
     let status = upstream.status();
     let content_type = upstream
