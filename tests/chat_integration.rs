@@ -413,3 +413,20 @@ async fn status_includes_chat_settings() {
     assert_eq!(body["chat"]["pipeline_enabled"], true);
     assert_eq!(body["chat"]["model_override"], "cascade");
 }
+
+#[tokio::test]
+async fn panel_contains_chat_card() {
+    let cfg =
+        Config::from_toml_str(&chat_config("http://unused.test", &temp_state("panel"))).unwrap();
+    let app = proxy::router(build_state(cfg).unwrap());
+    let resp = app
+        .oneshot(Request::builder().uri("/panel").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    let html = String::from_utf8_lossy(&bytes);
+    assert!(html.contains("id=\"chat-card\""));
+    assert!(html.contains("id=\"chat-pipeline\""));
+    assert!(html.contains("id=\"chat-target\""));
+}

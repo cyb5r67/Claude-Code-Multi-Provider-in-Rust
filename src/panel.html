@@ -42,6 +42,9 @@
   .chip.budget_denied { background:#4d1f1f; color:#fca5a5; }
   .empty { color:var(--muted); }
   .yes { color:var(--ok); } .no { color:var(--bad); }
+  select, input[type="checkbox"] { accent-color: var(--ok); }
+  select { background:var(--bg); color:var(--text); border:1px solid var(--line);
+           border-radius:4px; padding:4px 8px; font:inherit; }
 </style>
 </head>
 <body>
@@ -55,6 +58,16 @@
   <div class="card">
     <h2>Orchestrator</h2>
     <div id="orch-body" class="kv"></div>
+  </div>
+  <div class="card" id="chat-card" hidden>
+    <h2>Chat (Open WebUI)</h2>
+    <div class="kv">
+      <div>pipeline</div>
+      <div><label><input type="checkbox" id="chat-pipeline"> route chat through the cascade/routing pipeline</label></div>
+      <div>target</div>
+      <div><select id="chat-target"></select></div>
+    </div>
+    <div id="chat-msg" class="empty"></div>
   </div>
   <div class="card" id="budget-card" hidden>
     <h2>Cloud budget (last hour)</h2>
@@ -144,8 +157,53 @@ async function fetchStatus() {
     wrap.classList.add("stale");
   }
 }
+async function loadChatSettings() {
+  var card = document.getElementById("chat-card");
+  try {
+    var resp = await fetch("/chat/settings");
+    if (!resp.ok) { card.hidden = true; return; }
+    renderChatSettings(await resp.json());
+    card.hidden = false;
+  } catch (e) {
+    card.hidden = true;
+  }
+}
+function renderChatSettings(s) {
+  document.getElementById("chat-pipeline").checked = s.pipeline_enabled;
+  var sel = document.getElementById("chat-target");
+  sel.innerHTML = s.targets.map(function (t) {
+    return '<option value="' + esc(t) + '"' +
+      (t === s.model_override ? " selected" : "") + ">" + esc(t) + "</option>";
+  }).join("");
+  sel.disabled = !s.pipeline_enabled;
+}
+async function saveChatSettings() {
+  var msg = document.getElementById("chat-msg");
+  var body = {
+    pipeline_enabled: document.getElementById("chat-pipeline").checked,
+    model_override: document.getElementById("chat-target").value
+  };
+  try {
+    var resp = await fetch("/chat/settings", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    var data = await resp.json();
+    if (!resp.ok) throw new Error(data.error && data.error.message || resp.status);
+    renderChatSettings(data);
+    msg.textContent = "saved";
+    setTimeout(function () { msg.textContent = ""; }, 2000);
+  } catch (e) {
+    msg.textContent = "save failed: " + e.message;
+    loadChatSettings();
+  }
+}
+document.getElementById("chat-pipeline").addEventListener("change", saveChatSettings);
+document.getElementById("chat-target").addEventListener("change", saveChatSettings);
 fetchStatus();
 setInterval(fetchStatus, 3000);
+loadChatSettings();
 </script>
 </body>
 </html>
