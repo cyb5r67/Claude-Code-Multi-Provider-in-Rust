@@ -49,9 +49,11 @@ answered.
 2. If it carries an explicit `/model` provider selection → existing static
    routing. Done.
 3. If the orchestrator is disabled → existing behavior. Done.
-4. Sticky-map lookup on the conversation key (hash of the earliest
-   messages). Already `Cloud` → route directly to the escalation provider
-   (budget-checked), skipping the local attempt.
+4. Sticky-map lookup on the conversation key: a SHA-256 hash of the first
+   user message's content. Claude Code resends the full history each turn, so
+   this key is stable across every request of a conversation. Already
+   `Cloud` → route directly to the escalation provider (budget-checked),
+   skipping the local attempt.
 5. Otherwise append a short sentinel instruction to the system prompt and
    forward to the local provider:
    > "If this task is beyond your capability, output `<<ESCALATE>>` as your
