@@ -97,9 +97,11 @@ Nothing else in the stack moves. Grafana/Prometheus wiring is untouched.
 
 ## Observability
 
-Existing Prometheus metrics gain a label distinguishing chat traffic from Claude Code
-traffic (e.g. `client="chat"` vs `client="code"`), so the Grafana dashboard can split
-them.
+A new counter `bb_chat_requests_total{mode="pipeline"|"passthrough"}` counts chat
+traffic. (A label on the existing series was considered but rejected: changing label
+sets breaks the provisioned Grafana dashboard's queries.) Chat requests routed through
+the pipeline additionally show up in the existing tier/escalation metrics like any
+other pipeline traffic.
 
 ## Testing
 
