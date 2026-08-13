@@ -4,7 +4,7 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use big_brother::config::Config;
-use big_brother::{build_state, log_key_presence, proxy};
+use big_brother::{build_state, log_key_presence, log_orchestrator, proxy};
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -28,6 +28,7 @@ async fn main() -> ExitCode {
 
     let bind_addr = format!("{}:{}", config.server.host, config.server.port);
     log_key_presence(&config);
+    log_orchestrator(&config);
 
     let state = match build_state(config) {
         Ok(s) => s,

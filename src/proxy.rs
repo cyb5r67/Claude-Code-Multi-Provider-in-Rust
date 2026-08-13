@@ -13,12 +13,14 @@ use serde_json::{json, Value};
 use crate::config::{AuthStyle, Config};
 use crate::error::AppError;
 use crate::model_command;
+use crate::orchestrator::Orchestrator;
 
 /// State shared across handlers.
 #[derive(Clone)]
 pub struct AppState {
     pub config: Arc<Config>,
     pub client: reqwest::Client,
+    pub orchestrator: Option<Arc<Orchestrator>>,
 }
 
 /// Build the axum router. Kept separate from server startup so tests can drive
@@ -113,32 +115,44 @@ async fn messages_proxy(State(state): State<AppState>, body: Bytes) -> Result<Re
     let mut payload: Value =
         serde_json::from_slice(&body).map_err(|e| AppError::InvalidJson(e.to_string()))?;
 
-    let (provider_key, model, _source) = resolve_route(cfg, &mut payload);
+    let (provider_key, model, source) = resolve_route(cfg, &mut payload);
+    tracing::info!(provider = %provider_key, %model, "routing request");
 
-    // Resolve provider + API key.
-    let provider = cfg
+    // The cascade branch lands in Task 10; `source` is used there.
+    let _ = source;
+
+    forward(&state, &provider_key, &payload).await
+}
+
+/// Forward a resolved payload to the named provider, streaming the response
+/// through (buffering only error bodies for logging).
+pub(crate) async fn forward(
+    state: &AppState,
+    provider_key: &str,
+    payload: &Value,
+) -> Result<Response, AppError> {
+    let provider = state
+        .config
         .providers
-        .get(&provider_key)
-        .ok_or_else(|| AppError::UnknownProvider(provider_key.clone()))?;
+        .get(provider_key)
+        .ok_or_else(|| AppError::UnknownProvider(provider_key.to_string()))?;
     let api_key = provider.api_key().ok_or_else(|| AppError::MissingApiKey {
-        provider: provider_key.clone(),
+        provider: provider_key.to_string(),
         env: provider.api_key_env.clone(),
     })?;
 
-    tracing::info!(provider = %provider_key, %model, base_url = %provider.base_url, "routing request");
+    tracing::info!(provider = %provider_key, base_url = %provider.base_url, "forwarding request");
 
-    // Forward upstream. `.json()` serializes the (mutated) payload and sets
-    // Content-Type; we add the auth headers the various providers expect.
     let upstream = apply_auth(
         state.client.post(&provider.base_url),
         provider.auth_style,
         &api_key,
     )
-    .json(&payload)
+    .json(payload)
     .send()
     .await
     .map_err(|source| AppError::Upstream {
-        provider: provider_key.clone(),
+        provider: provider_key.to_string(),
         source,
     })?;
 
@@ -149,9 +163,6 @@ async fn messages_proxy(State(state): State<AppState>, body: Bytes) -> Result<Re
         .cloned()
         .unwrap_or_else(|| "application/json".parse().unwrap());
 
-    // Error responses are small: buffer them so the body can be logged --
-    // otherwise a misconfigured upstream (wrong path, bad key, unknown model)
-    // is invisible from the proxy log -- then forward them unchanged.
     if !status.is_success() {
         let bytes = upstream.bytes().await.unwrap_or_default();
         let preview = String::from_utf8_lossy(&bytes[..bytes.len().min(2048)]);
@@ -162,13 +173,10 @@ async fn messages_proxy(State(state): State<AppState>, body: Bytes) -> Result<Re
         return Ok(response.into_response());
     }
 
-    // Preserve the upstream status and content-type, then stream the body
-    // through unbuffered (handles both streaming SSE and plain JSON responses).
     let stream = upstream.bytes_stream();
     let mut response = Response::new(Body::from_stream(stream));
     *response.status_mut() = status;
     response.headers_mut().insert(CONTENT_TYPE, content_type);
-
     Ok(response.into_response())
 }
 
