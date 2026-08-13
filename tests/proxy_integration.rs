@@ -932,3 +932,94 @@ async fn unreachable_local_escalates_when_fail_mode_cloud() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body, json!({"routed": "cloud"}));
 }
+
+/// GET a route on the router and parse the JSON body.
+async fn get_json(app: axum::Router, uri: &str) -> (StatusCode, Value) {
+    let req = Request::builder()
+        .method("GET")
+        .uri(uri)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    let status = resp.status();
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
+}
+
+#[tokio::test]
+async fn status_reports_null_orchestrator_when_disabled() {
+    let server = MockServer::start().await;
+    let cfg = Config::from_toml_str(&config_toml(&server.uri(), &server.uri())).unwrap();
+    let app = proxy::router(build_state(cfg).unwrap());
+
+    let (status, body) = get_json(app, "/status").await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["orchestrator"], Value::Null);
+    assert_eq!(body["proxy"]["default_provider"], "primary");
+    let providers = body["proxy"]["providers"].as_array().unwrap();
+    assert_eq!(providers.len(), 2);
+    // BTreeMap order: primary then secondary; env vars are set by config_toml.
+    assert_eq!(providers[0]["name"], "primary");
+    assert_eq!(providers[0]["api_key_present"], true);
+    assert_eq!(providers[0]["auth_style"], "bearer");
+    // No key material anywhere in the response.
+    assert!(!body.to_string().contains("primary-secret"));
+}
+
+#[tokio::test]
+async fn status_reflects_escalation_budget_and_sticky() {
+    let local = MockServer::start().await;
+    let cloud = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(sentinel_json_response()))
+        .expect(1)
+        .mount(&local)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"routed": "cloud"})))
+        .expect(1)
+        .mount(&cloud)
+        .await;
+
+    let cfg = Config::from_toml_str(&orchestrated_config_toml(
+        &local.uri(),
+        &cloud.uri(),
+        10,
+        "cloud",
+    ))
+    .unwrap();
+    let state = build_state(cfg).unwrap();
+
+    let (s1, _) = send(
+        proxy::router(state.clone()),
+        json!({"model": "m", "messages": [{"role": "user", "content": "hard question"}]}),
+    )
+    .await;
+    assert_eq!(s1, StatusCode::OK);
+
+    let (s2, body) = get_json(proxy::router(state), "/status").await;
+    assert_eq!(s2, StatusCode::OK);
+    let orch = &body["orchestrator"];
+    assert_eq!(orch["enabled"], true);
+    assert_eq!(orch["fail_mode"], "cloud");
+    assert_eq!(orch["budget"]["used_last_hour"], 1);
+    assert_eq!(orch["budget"]["remaining"], 9);
+    assert_eq!(orch["sticky_cloud_conversations"], 1);
+    assert_eq!(orch["escalations"]["total_since_start"], 1);
+    let recent = orch["escalations"]["recent"].as_array().unwrap();
+    assert_eq!(recent.len(), 1);
+    assert_eq!(recent[0]["trigger"], "sentinel");
+    assert_eq!(recent[0]["provider"], "cloud");
+    assert_eq!(recent[0]["model"], "cloud-big-model");
+    assert_eq!(
+        recent[0]["conversation_key_prefix"].as_str().unwrap().len(),
+        8
+    );
+}

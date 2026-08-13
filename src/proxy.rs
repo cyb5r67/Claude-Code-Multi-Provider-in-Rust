@@ -31,12 +31,40 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/v1/messages", post(messages_proxy))
         .route("/health", get(health))
+        .route("/status", get(status))
         .with_state(state)
 }
 
 /// Simple health check.
 async fn health() -> Json<Value> {
     Json(json!({ "status": "ok" }))
+}
+
+/// Read-only status snapshot for the panel. Never calls upstream providers.
+async fn status(State(state): State<AppState>) -> Json<Value> {
+    let providers: Vec<Value> = state
+        .config
+        .providers
+        .iter()
+        .map(|(name, p)| {
+            json!({
+                "name": name,
+                "base_url": p.base_url,
+                "auth_style": p.auth_style,
+                "api_key_present": p.api_key().is_some(),
+            })
+        })
+        .collect();
+    let orchestrator = state.orchestrator.as_ref().map(|o| o.status());
+    Json(json!({
+        "proxy": {
+            "version": env!("CARGO_PKG_VERSION"),
+            "default_provider": state.config.default.provider,
+            "default_model": state.config.default.model,
+            "providers": providers,
+        },
+        "orchestrator": orchestrator,
+    }))
 }
 
 /// Attach the provider's authentication headers to an outgoing request.
@@ -210,6 +238,13 @@ async fn escalate(
             budget_per_hour = orch.cfg.max_cloud_requests_per_hour,
             "cloud budget exhausted; answering locally"
         );
+        let local_model = state
+            .config
+            .providers
+            .get(&orch.cfg.local_provider)
+            .and_then(|p| p.model.clone())
+            .unwrap_or_default();
+        orch.record_escalation("budget_denied", &orch.cfg.local_provider, &local_model, key);
         let mut fallback = original.clone();
         set_local_model(state, orch, &mut fallback);
         orchestrator::append_system_note(&mut fallback, orchestrator::ESCALATION_UNAVAILABLE_NOTE);
@@ -228,6 +263,12 @@ async fn escalate(
         provider = %orch.cfg.escalation_provider,
         model = %orch.cfg.escalation_model,
         "escalating to cloud tier"
+    );
+    orch.record_escalation(
+        trigger,
+        &orch.cfg.escalation_provider,
+        &orch.cfg.escalation_model,
+        key,
     );
     forward(state, &orch.cfg.escalation_provider, &cloud).await
 }
