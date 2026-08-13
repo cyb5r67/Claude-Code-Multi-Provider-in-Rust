@@ -3,6 +3,7 @@
 
 pub mod config;
 pub mod error;
+pub mod metrics;
 pub mod model_command;
 pub mod orchestrator;
 pub mod proxy;
@@ -29,6 +30,7 @@ pub fn build_state(config: Config) -> Result<AppState, reqwest::Error> {
         config: Arc::new(config),
         client,
         orchestrator,
+        metrics: Arc::new(crate::metrics::Metrics::new()),
     })
 }
 

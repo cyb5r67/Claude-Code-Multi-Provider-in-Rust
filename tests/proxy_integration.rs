@@ -1050,3 +1050,32 @@ async fn panel_serves_embedded_html() {
     assert!(html.contains("Big Brother status"));
     assert!(html.contains("fetchStatus"));
 }
+
+#[tokio::test]
+async fn metrics_endpoint_serves_prometheus_text() {
+    let server = MockServer::start().await;
+    let cfg = Config::from_toml_str(&config_toml(&server.uri(), &server.uri())).unwrap();
+    let app = proxy::router(build_state(cfg).unwrap());
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/metrics")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    assert!(content_type.starts_with("text/plain"));
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    let text = String::from_utf8_lossy(&bytes);
+    // Orchestrator disabled: gauges exist and read zero.
+    assert!(text.contains("bb_cloud_budget_used 0"));
+    assert!(text.contains("bb_sticky_conversations 0"));
+    assert!(text.contains("bb_budget_denied_total 0"));
+}

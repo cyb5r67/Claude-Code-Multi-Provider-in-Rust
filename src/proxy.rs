@@ -13,6 +13,7 @@ use serde_json::{json, Value};
 
 use crate::config::{AuthStyle, Config, FailMode};
 use crate::error::AppError;
+use crate::metrics::Metrics;
 use crate::model_command;
 use crate::orchestrator::{self, Orchestrator, Tier};
 use crate::stream::{self, SentinelVerdict};
@@ -23,6 +24,7 @@ pub struct AppState {
     pub config: Arc<Config>,
     pub client: reqwest::Client,
     pub orchestrator: Option<Arc<Orchestrator>>,
+    pub metrics: Arc<Metrics>,
 }
 
 /// Build the axum router. Kept separate from server startup so tests can drive
@@ -33,6 +35,7 @@ pub fn router(state: AppState) -> Router {
         .route("/health", get(health))
         .route("/status", get(status))
         .route("/panel", get(panel))
+        .route("/metrics", get(metrics_endpoint))
         .with_state(state)
 }
 
@@ -71,6 +74,30 @@ async fn status(State(state): State<AppState>) -> Json<Value> {
 /// The embedded status panel (single self-contained file, no external assets).
 async fn panel() -> Html<&'static str> {
     Html(include_str!("panel.html"))
+}
+
+/// Prometheus text exposition. Read-only: refreshes gauges from in-memory
+/// state and never contacts upstream providers.
+async fn metrics_endpoint(State(state): State<AppState>) -> Response {
+    if let Some(orch) = &state.orchestrator {
+        state
+            .metrics
+            .cloud_budget_used
+            .set(orch.budget_used() as i64);
+        state
+            .metrics
+            .cloud_budget_max
+            .set(orch.cfg.max_cloud_requests_per_hour as i64);
+        state
+            .metrics
+            .sticky_conversations
+            .set(orch.sticky_count() as i64);
+    }
+    let mut response = Response::new(Body::from(state.metrics.render()));
+    response
+        .headers_mut()
+        .insert(CONTENT_TYPE, "text/plain; version=0.0.4".parse().unwrap());
+    response.into_response()
 }
 
 /// Attach the provider's authentication headers to an outgoing request.
