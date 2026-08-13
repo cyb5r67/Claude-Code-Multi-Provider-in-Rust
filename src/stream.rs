@@ -41,12 +41,15 @@ pub struct SseTextScanner {
     raw: Vec<Bytes>,
     pending: String,
     text: String,
-    /// Set once a content block that cannot carry the sentinel's opening
-    /// token has been observed. The sentinel must be the very first token
-    /// of the response, so a non-text first block (or a partial text
-    /// prefix immediately followed by a non-text block) rules it out for
-    /// good — the stream must be released rather than buffered further.
-    ruled_out: bool,
+    /// Latches the FIRST verdict reached while draining events, evaluated
+    /// per-event rather than once per chunk. The sentinel must be the very
+    /// first token of the response, so whichever resolves first —
+    /// completion of the sentinel, or a non-text block that rules it out
+    /// (a non-text first block, or a partial text prefix immediately
+    /// followed by a non-text block) — wins for good, even if both occur
+    /// within the same `push()` call. Once set, later events cannot change
+    /// it.
+    resolved: Option<SentinelVerdict>,
 }
 
 impl SseTextScanner {
@@ -56,7 +59,7 @@ impl SseTextScanner {
             raw: Vec::new(),
             pending: String::new(),
             text: String::new(),
-            ruled_out: false,
+            resolved: None,
         }
     }
 
@@ -73,21 +76,17 @@ impl SseTextScanner {
                 }
             }
         }
-        if self.ruled_out {
-            SentinelVerdict::Clean
-        } else {
-            check_sentinel(&self.text, &self.sentinel)
-        }
+        self.resolved
+            .unwrap_or_else(|| check_sentinel(&self.text, &self.sentinel))
     }
 
     fn absorb_event(&mut self, event: &Value) {
-        if event.get("type").and_then(Value::as_str) == Some("content_block_start") {
-            match event.pointer("/content_block/type").and_then(Value::as_str) {
-                Some("text") => {}
-                Some(_) => self.ruled_out = true,
-                None => {}
-            }
-        }
+        let is_non_text_block_start = event.get("type").and_then(Value::as_str)
+            == Some("content_block_start")
+            && !matches!(
+                event.pointer("/content_block/type").and_then(Value::as_str),
+                Some("text") | None
+            );
         let text = match event.get("type").and_then(Value::as_str) {
             Some("content_block_start") => event.pointer("/content_block/text"),
             Some("content_block_delta") => event.pointer("/delta/text"),
@@ -95,6 +94,13 @@ impl SseTextScanner {
         };
         if let Some(t) = text.and_then(Value::as_str) {
             self.text.push_str(t);
+        }
+        if self.resolved.is_none() {
+            if is_non_text_block_start {
+                self.resolved = Some(SentinelVerdict::Clean);
+            } else if check_sentinel(&self.text, &self.sentinel) == SentinelVerdict::Sentinel {
+                self.resolved = Some(SentinelVerdict::Sentinel);
+            }
         }
     }
 
@@ -279,6 +285,23 @@ mod tests {
             "content_block": {"type": "tool_use", "id": "toolu_1", "name": "get_weather", "input": {}}
         }));
         assert_eq!(scanner.push(&Bytes::from(start)), SentinelVerdict::Clean);
+    }
+
+    #[test]
+    fn scanner_sentinel_followed_by_non_text_block_in_same_chunk_still_escalates() {
+        let mut scanner = SseTextScanner::new(S.to_string());
+        let delta = sse_line(&json!({
+            "type": "content_block_delta", "index": 0,
+            "delta": {"type": "text_delta", "text": "<<ESCALATE>>"}
+        }));
+        let start = sse_line(&json!({
+            "type": "content_block_start", "index": 1,
+            "content_block": {"type": "tool_use", "id": "toolu_1", "name": "get_weather", "input": {}}
+        }));
+        let mut chunk = String::new();
+        chunk.push_str(&delta);
+        chunk.push_str(&start);
+        assert_eq!(scanner.push(&Bytes::from(chunk)), SentinelVerdict::Sentinel);
     }
 
     #[test]
