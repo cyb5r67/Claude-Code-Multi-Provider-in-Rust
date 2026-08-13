@@ -6,6 +6,7 @@ pub mod config;
 pub mod error;
 pub mod metrics;
 pub mod model_command;
+pub mod openai_compat;
 pub mod orchestrator;
 pub mod proxy;
 pub mod stream;
