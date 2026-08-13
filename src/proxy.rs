@@ -10,10 +10,11 @@ use axum::{Json, Router};
 use reqwest::header::CONTENT_TYPE;
 use serde_json::{json, Value};
 
-use crate::config::{AuthStyle, Config};
+use crate::config::{AuthStyle, Config, FailMode};
 use crate::error::AppError;
 use crate::model_command;
-use crate::orchestrator::Orchestrator;
+use crate::orchestrator::{self, Orchestrator, Tier};
+use crate::stream::{self, SentinelVerdict};
 
 /// State shared across handlers.
 #[derive(Clone)]
@@ -118,10 +119,197 @@ async fn messages_proxy(State(state): State<AppState>, body: Bytes) -> Result<Re
     let (provider_key, model, source) = resolve_route(cfg, &mut payload);
     tracing::info!(provider = %provider_key, %model, "routing request");
 
-    // The cascade branch lands in Task 10; `source` is used there.
-    let _ = source;
+    if source == RouteSource::Default {
+        if let Some(orch) = state.orchestrator.clone() {
+            return cascade(&state, &orch, payload).await;
+        }
+    }
 
     forward(&state, &provider_key, &payload).await
+}
+
+/// Outcome of the local-tier attempt.
+enum LocalOutcome {
+    /// Deliver the local response as-is.
+    Clean(Response),
+    /// Sentinel detected: run the escalation path.
+    Escalate,
+    /// Local tier answered with an HTTP error (buffered pass-through body).
+    Failed(Response),
+}
+
+/// Phase 1 sentinel cascade: try the local tier, escalate on sentinel.
+async fn cascade(
+    state: &AppState,
+    orch: &Arc<Orchestrator>,
+    original: Value,
+) -> Result<Response, AppError> {
+    let key = orchestrator::conversation_key(&original);
+
+    if let Some(k) = key.as_deref() {
+        if orch.sticky_tier(k) == Some(Tier::Cloud) {
+            return escalate(state, orch, key.as_deref(), &original, "sticky").await;
+        }
+    }
+
+    let mut attempt = original.clone();
+    set_local_model(state, orch, &mut attempt);
+    orchestrator::append_system_note(
+        &mut attempt,
+        &orchestrator::sentinel_instruction(&orch.cfg.sentinel),
+    );
+
+    match local_attempt(state, orch, &attempt).await {
+        Ok(LocalOutcome::Clean(response)) => Ok(response),
+        Ok(LocalOutcome::Escalate) => {
+            escalate(state, orch, key.as_deref(), &original, "sentinel").await
+        }
+        Ok(LocalOutcome::Failed(response)) => match orch.cfg.fail_mode {
+            FailMode::Cloud => {
+                tracing::warn!("local tier returned an error; escalating per fail_mode=cloud");
+                escalate(state, orch, key.as_deref(), &original, "fail_mode").await
+            }
+            FailMode::Error => Ok(response),
+        },
+        Err(err) => match orch.cfg.fail_mode {
+            FailMode::Cloud => {
+                tracing::warn!(error = %err, "local tier unreachable; escalating per fail_mode=cloud");
+                escalate(state, orch, key.as_deref(), &original, "fail_mode").await
+            }
+            FailMode::Error => Err(err),
+        },
+    }
+}
+
+/// Local attempts run against the local provider's own default model when one
+/// is configured (the client's model id is meaningless to LM Studio).
+fn set_local_model(state: &AppState, orch: &Arc<Orchestrator>, payload: &mut Value) {
+    if let Some(local_model) = state
+        .config
+        .providers
+        .get(&orch.cfg.local_provider)
+        .and_then(|p| p.model.clone())
+    {
+        payload["model"] = Value::String(local_model);
+    }
+}
+
+/// Route to the cloud tier, honoring the budget. On a denied budget the
+/// request is answered locally with an "escalation unavailable" note.
+async fn escalate(
+    state: &AppState,
+    orch: &Arc<Orchestrator>,
+    key: Option<&str>,
+    original: &Value,
+    trigger: &str,
+) -> Result<Response, AppError> {
+    if !orch.try_reserve_cloud_call() {
+        tracing::warn!(
+            trigger,
+            budget_per_hour = orch.cfg.max_cloud_requests_per_hour,
+            "cloud budget exhausted; answering locally"
+        );
+        let mut fallback = original.clone();
+        set_local_model(state, orch, &mut fallback);
+        orchestrator::append_system_note(&mut fallback, orchestrator::ESCALATION_UNAVAILABLE_NOTE);
+        return forward(state, &orch.cfg.local_provider, &fallback).await;
+    }
+
+    if let Some(k) = key {
+        orch.mark_cloud(k);
+    }
+
+    let mut cloud = original.clone();
+    cloud["model"] = Value::String(orch.cfg.escalation_model.clone());
+    // The audit line: one per escalation, greppable.
+    tracing::info!(
+        trigger,
+        provider = %orch.cfg.escalation_provider,
+        model = %orch.cfg.escalation_model,
+        "escalating to cloud tier"
+    );
+    forward(state, &orch.cfg.escalation_provider, &cloud).await
+}
+
+/// Send the sentinel-instrumented attempt to the local tier and inspect the
+/// leading response text. SSE inspection lands in Task 11; until then
+/// streaming responses pass through as Clean.
+async fn local_attempt(
+    state: &AppState,
+    orch: &Arc<Orchestrator>,
+    attempt: &Value,
+) -> Result<LocalOutcome, AppError> {
+    let provider_key = &orch.cfg.local_provider;
+    let provider = state
+        .config
+        .providers
+        .get(provider_key)
+        .ok_or_else(|| AppError::UnknownProvider(provider_key.clone()))?;
+    let api_key = provider.api_key().ok_or_else(|| AppError::MissingApiKey {
+        provider: provider_key.clone(),
+        env: provider.api_key_env.clone(),
+    })?;
+
+    let upstream = apply_auth(
+        state.client.post(&provider.base_url),
+        provider.auth_style,
+        &api_key,
+    )
+    .json(attempt)
+    .send()
+    .await
+    .map_err(|source| AppError::Upstream {
+        provider: provider_key.clone(),
+        source,
+    })?;
+
+    let status = upstream.status();
+    let content_type = upstream
+        .headers()
+        .get(CONTENT_TYPE)
+        .cloned()
+        .unwrap_or_else(|| "application/json".parse().unwrap());
+
+    if !status.is_success() {
+        let bytes = upstream.bytes().await.unwrap_or_default();
+        let preview = String::from_utf8_lossy(&bytes[..bytes.len().min(2048)]);
+        tracing::warn!(provider = %provider_key, %status, body = %preview, "local tier returned error status");
+        let mut response = Response::new(Body::from(bytes));
+        *response.status_mut() = status;
+        response.headers_mut().insert(CONTENT_TYPE, content_type);
+        return Ok(LocalOutcome::Failed(response.into_response()));
+    }
+
+    let is_sse = content_type
+        .to_str()
+        .map(|v| v.contains("text/event-stream"))
+        .unwrap_or(false);
+    if is_sse {
+        // Task 11 replaces this stub with sentinel scanning.
+        let body_stream = upstream.bytes_stream();
+        let mut response = Response::new(Body::from_stream(body_stream));
+        *response.status_mut() = status;
+        response.headers_mut().insert(CONTENT_TYPE, content_type);
+        return Ok(LocalOutcome::Clean(response.into_response()));
+    }
+
+    let bytes = upstream
+        .bytes()
+        .await
+        .map_err(|source| AppError::Upstream {
+            provider: provider_key.clone(),
+            source,
+        })?;
+    let body: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+    let text = stream::json_first_text(&body).unwrap_or("");
+    if stream::check_sentinel(text, &orch.cfg.sentinel) == SentinelVerdict::Sentinel {
+        return Ok(LocalOutcome::Escalate);
+    }
+
+    let mut response = Response::new(Body::from(bytes));
+    *response.status_mut() = status;
+    response.headers_mut().insert(CONTENT_TYPE, content_type);
+    Ok(LocalOutcome::Clean(response.into_response()))
 }
 
 /// Forward a resolved payload to the named provider, streaming the response

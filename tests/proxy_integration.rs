@@ -7,7 +7,7 @@ use big_brother::{build_state, proxy};
 use http_body_util::BodyExt;
 use serde_json::{json, Value};
 use tower::ServiceExt; // for `oneshot`
-use wiremock::matchers::{body_json, header, method, path};
+use wiremock::matchers::{body_json, body_partial_json, header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// Build a router whose providers point at the given mock server, and set the
@@ -342,4 +342,298 @@ async fn anthropic_auth_style_sends_version_header() {
 
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body, json!({"routed": "anthropic"}));
+}
+
+use big_brother::orchestrator::{sentinel_instruction, ESCALATION_UNAVAILABLE_NOTE};
+
+/// Config with the orchestrator enabled: "local" is the Qwen stand-in,
+/// "cloud" the Anthropic stand-in.
+fn orchestrated_config_toml(
+    local_url: &str,
+    cloud_url: &str,
+    max_per_hour: u32,
+    fail_mode: &str,
+) -> String {
+    std::env::set_var("IT_LOCAL_KEY", "local-secret");
+    std::env::set_var("IT_CLOUD_KEY", "cloud-secret");
+    format!(
+        r#"
+        [default]
+        provider = "local"
+        model = "local-default-model"
+
+        [orchestrator]
+        local_provider = "local"
+        escalation_provider = "cloud"
+        escalation_model = "cloud-big-model"
+        max_cloud_requests_per_hour = {max_per_hour}
+        fail_mode = "{fail_mode}"
+
+        [providers.local]
+        base_url = "{local_url}/v1/messages"
+        api_key_env = "IT_LOCAL_KEY"
+        model = "local-model"
+
+        [providers.cloud]
+        base_url = "{cloud_url}/v1/messages"
+        api_key_env = "IT_CLOUD_KEY"
+        auth_style = "anthropic"
+        "#
+    )
+}
+
+fn sentinel_json_response() -> Value {
+    json!({"content": [{"type": "text", "text": "<<ESCALATE>>"}]})
+}
+
+#[tokio::test]
+async fn sentinel_response_escalates_to_cloud() {
+    let local = MockServer::start().await;
+    let cloud = MockServer::start().await;
+
+    // Local attempt: model overridden to the local default, sentinel
+    // instruction injected as the system prompt.
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(body_partial_json(json!({
+            "model": "local-model",
+            "system": sentinel_instruction("<<ESCALATE>>")
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(sentinel_json_response()))
+        .expect(1)
+        .mount(&local)
+        .await;
+
+    // Escalation: the ORIGINAL payload (no injected system prompt) with the
+    // model swapped to the escalation model, Anthropic-style headers.
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(header("anthropic-version", "2023-06-01"))
+        .and(header("x-api-key", "cloud-secret"))
+        .and(body_json(json!({
+            "model": "cloud-big-model",
+            "messages": [{"role": "user", "content": "hard question"}]
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"routed": "cloud"})))
+        .expect(1)
+        .mount(&cloud)
+        .await;
+
+    let cfg = Config::from_toml_str(&orchestrated_config_toml(
+        &local.uri(),
+        &cloud.uri(),
+        10,
+        "cloud",
+    ))
+    .unwrap();
+    let app = proxy::router(build_state(cfg).unwrap());
+
+    let (status, body) = send(
+        app,
+        json!({
+            "model": "whatever-model",
+            "messages": [{"role": "user", "content": "hard question"}]
+        }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, json!({"routed": "cloud"}));
+}
+
+#[tokio::test]
+async fn clean_response_is_answered_locally() {
+    let local = MockServer::start().await;
+    let cloud = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"content": [{"type": "text", "text": "The answer is 4."}]})),
+        )
+        .expect(1)
+        .mount(&local)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(0)
+        .mount(&cloud)
+        .await;
+
+    let cfg = Config::from_toml_str(&orchestrated_config_toml(
+        &local.uri(),
+        &cloud.uri(),
+        10,
+        "cloud",
+    ))
+    .unwrap();
+    let app = proxy::router(build_state(cfg).unwrap());
+
+    let (status, body) = send(
+        app,
+        json!({
+            "model": "whatever-model",
+            "messages": [{"role": "user", "content": "what is 2+2"}]
+        }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["content"][0]["text"], "The answer is 4.");
+}
+
+#[tokio::test]
+async fn escalated_conversation_is_sticky() {
+    let local = MockServer::start().await;
+    let cloud = MockServer::start().await;
+
+    // Local is attempted exactly once (turn 1); turn 2 skips it.
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(sentinel_json_response()))
+        .expect(1)
+        .mount(&local)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"routed": "cloud"})))
+        .expect(2)
+        .mount(&cloud)
+        .await;
+
+    let cfg = Config::from_toml_str(&orchestrated_config_toml(
+        &local.uri(),
+        &cloud.uri(),
+        10,
+        "cloud",
+    ))
+    .unwrap();
+    let state = build_state(cfg).unwrap();
+
+    let turn1 = json!({
+        "model": "m",
+        "messages": [{"role": "user", "content": "hard question"}]
+    });
+    let turn2 = json!({
+        "model": "m",
+        "messages": [
+            {"role": "user", "content": "hard question"},
+            {"role": "assistant", "content": "cloud answer"},
+            {"role": "user", "content": "follow-up"}
+        ]
+    });
+
+    let (s1, _) = send(proxy::router(state.clone()), turn1).await;
+    let (s2, b2) = send(proxy::router(state), turn2).await;
+
+    assert_eq!(s1, StatusCode::OK);
+    assert_eq!(s2, StatusCode::OK);
+    assert_eq!(b2, json!({"routed": "cloud"}));
+}
+
+#[tokio::test]
+async fn exhausted_budget_falls_back_to_local_with_note() {
+    let local = MockServer::start().await;
+    let cloud = MockServer::start().await;
+
+    // Budget-denied fallback: original payload + escalation-unavailable note.
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(body_partial_json(
+            json!({"system": ESCALATION_UNAVAILABLE_NOTE}),
+        ))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"content": [{"type": "text", "text": "best local effort"}]})),
+        )
+        .expect(1)
+        .mount(&local)
+        .await;
+
+    // Sentinel attempts (conversations A and B).
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(sentinel_json_response()))
+        .expect(2)
+        .mount(&local)
+        .await;
+
+    // Budget of 1: only conversation A gets through.
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"routed": "cloud"})))
+        .expect(1)
+        .mount(&cloud)
+        .await;
+
+    let cfg = Config::from_toml_str(&orchestrated_config_toml(
+        &local.uri(),
+        &cloud.uri(),
+        1,
+        "cloud",
+    ))
+    .unwrap();
+    let state = build_state(cfg).unwrap();
+
+    let conv_a = json!({"model": "m", "messages": [{"role": "user", "content": "conversation A"}]});
+    let conv_b = json!({"model": "m", "messages": [{"role": "user", "content": "conversation B"}]});
+
+    let (sa, ba) = send(proxy::router(state.clone()), conv_a).await;
+    let (sb, bb) = send(proxy::router(state), conv_b).await;
+
+    assert_eq!(sa, StatusCode::OK);
+    assert_eq!(ba, json!({"routed": "cloud"}));
+    assert_eq!(sb, StatusCode::OK);
+    assert_eq!(bb["content"][0]["text"], "best local effort");
+}
+
+/// Explicit provider selection bypasses the cascade entirely.
+#[tokio::test]
+async fn explicit_model_selection_bypasses_orchestrator() {
+    let local = MockServer::start().await;
+    let cloud = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(body_json(json!({
+            "model": "picked-model",
+            "messages": [{"role": "user", "content": "hi"}]
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"routed": "cloud-explicit"})))
+        .expect(1)
+        .mount(&cloud)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(0)
+        .mount(&local)
+        .await;
+
+    let cfg = Config::from_toml_str(&orchestrated_config_toml(
+        &local.uri(),
+        &cloud.uri(),
+        10,
+        "cloud",
+    ))
+    .unwrap();
+    let app = proxy::router(build_state(cfg).unwrap());
+
+    // `cloud/picked-model` explicitly names the cloud provider.
+    let (status, body) = send(
+        app,
+        json!({
+            "model": "cloud/picked-model",
+            "messages": [{"role": "user", "content": "hi"}]
+        }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, json!({"routed": "cloud-explicit"}));
 }
