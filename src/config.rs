@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Top-level configuration, loaded once at startup and shared behind an `Arc`.
 #[derive(Debug, Clone, Deserialize)]
@@ -68,7 +68,7 @@ impl Provider {
 }
 
 /// How to authenticate against a provider's endpoint.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AuthStyle {
     /// `authorization: Bearer <key>` plus `x-api-key` (y-router compatibility).
@@ -79,7 +79,7 @@ pub enum AuthStyle {
 }
 
 /// Behavior when the local tier fails before a sentinel verdict is reached.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FailMode {
     /// Escalate to the cloud tier (budget permitting).
