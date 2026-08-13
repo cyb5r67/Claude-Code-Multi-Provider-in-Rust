@@ -36,6 +36,8 @@ process-flow and module diagrams (Mermaid).
   model first and transparently escalate to a cloud model when the local tier
   signals a task is beyond it. See the
   [user guide](docs/USER_GUIDE.md#hierarchical-orchestrator-local-first-with-cloud-escalation).
+- `GET /panel` — a read-only status page (orchestrator state, budget, recent
+  escalations); `GET /status` serves the same data as JSON.
 
 ## Configuration
 
@@ -98,6 +100,9 @@ Logging is controlled by `RUST_LOG` (default `info`), e.g. `RUST_LOG=debug`.
 | `src/config.rs`       | TOML config model, loading, API-key resolution        |
 | `src/model_command.rs`| Parse & strip legacy `/model` text commands           |
 | `src/proxy.rs`        | Router, `/v1/messages` forwarding, `/health`          |
+| `src/orchestrator.rs` | Escalation state: sticky map, budget, history      |
+| `src/stream.rs`       | Sentinel detection over SSE/JSON responses          |
+| `src/panel.html`      | Embedded status panel served at `/panel`            |
 | `src/error.rs`        | `AppError` → HTTP status + JSON error body            |
 
 ## Credits

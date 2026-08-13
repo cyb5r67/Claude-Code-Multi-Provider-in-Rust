@@ -8,6 +8,7 @@ LM Studio — and switch between them mid-session with the `/model` command.
 - [Quick start](#quick-start)
 - [The config file](#the-config-file)
 - [Switching providers and models](#switching-providers-and-models)
+- [Status panel](#status-panel)
 - [Example: local LM Studio hosts](#example-local-lm-studio-hosts)
 - [Logging](#logging)
 - [Troubleshooting](#troubleshooting)
@@ -159,6 +160,28 @@ Rules of thumb:
   is only rescued by the global `request_timeout_secs` (default 300s),
   after which `fail_mode` applies. Lower `request_timeout_secs` if a wedged
   local tier should fail over faster.
+
+---
+
+## Status panel
+
+Open <http://127.0.0.1:8787/panel> in a browser while the proxy is running.
+The page polls `GET /status` every 3 seconds and shows:
+
+- orchestrator state (tiers, escalation model, sentinel, fail mode);
+- cloud budget for the sliding hour, with a bar that turns amber at 80%;
+- sticky cloud conversations and escalation totals;
+- the last 500 escalations (time, trigger, target, conversation-key prefix);
+- configured providers and whether each API-key env var is set.
+
+Both routes are read-only, never call upstream providers, and are only
+reachable from the machine running the proxy (the default `127.0.0.1` bind).
+No message content or key material appears: conversations show only as
+8-character hash prefixes, keys only as present/missing. History and
+counters reset when the proxy restarts.
+
+`GET /status` returns the same data as JSON if you'd rather script against
+it (`curl http://127.0.0.1:8787/status`).
 
 ---
 
