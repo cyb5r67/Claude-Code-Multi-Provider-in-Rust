@@ -51,10 +51,18 @@ pub(crate) fn apply_auth(
     }
 }
 
+/// Whether the request explicitly selected a provider (human override) or fell
+/// through to defaults. The orchestrator only engages for `Default` routes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RouteSource {
+    Default,
+    Explicit,
+}
+
 /// Decide the target `(provider_key, model)` for a request and normalize the
 /// payload: strips any in-text `/model` command and writes the final model back
 /// into `payload["model"]`.
-fn resolve_route(cfg: &Config, payload: &mut Value) -> (String, String) {
+fn resolve_route(cfg: &Config, payload: &mut Value) -> (String, String, RouteSource) {
     // Start from the defaults; the request body may carry its own model.
     let mut provider_key = cfg.default.provider.clone();
     let mut model = payload
@@ -62,6 +70,7 @@ fn resolve_route(cfg: &Config, payload: &mut Value) -> (String, String) {
         .and_then(Value::as_str)
         .unwrap_or(&cfg.default.model)
         .to_string();
+    let mut source = RouteSource::Default;
 
     // An in-session `/model provider/model` command in message text overrides
     // both. This is legacy behavior: current Claude Code handles `/model`
@@ -71,6 +80,7 @@ fn resolve_route(cfg: &Config, payload: &mut Value) -> (String, String) {
         tracing::info!(provider = %cmd.provider, model = %cmd.model, "model switch via /model command");
         provider_key = cmd.provider;
         model = cmd.model;
+        source = RouteSource::Explicit;
     }
     // A `provider/model` value in the model field selects that provider
     // directly. Ids whose prefix is not a configured provider (e.g.
@@ -80,16 +90,18 @@ fn resolve_route(cfg: &Config, payload: &mut Value) -> (String, String) {
             tracing::info!(provider = %prefix, model = %rest, "model switch via model field");
             provider_key = prefix.to_string();
             model = rest.to_string();
+            source = RouteSource::Explicit;
         }
     }
     // A bare provider name selects that provider's configured default model.
     else if let Some(default_model) = cfg.providers.get(&model).and_then(|p| p.model.clone()) {
         tracing::info!(provider = %model, model = %default_model, "provider switch via model field");
         provider_key = std::mem::replace(&mut model, default_model);
+        source = RouteSource::Explicit;
     }
 
     payload["model"] = Value::String(model.clone());
-    (provider_key, model)
+    (provider_key, model, source)
 }
 
 /// Receive a Claude Code request, choose the target provider (default or via an
@@ -101,7 +113,7 @@ async fn messages_proxy(State(state): State<AppState>, body: Bytes) -> Result<Re
     let mut payload: Value =
         serde_json::from_slice(&body).map_err(|e| AppError::InvalidJson(e.to_string()))?;
 
-    let (provider_key, model) = resolve_route(cfg, &mut payload);
+    let (provider_key, model, _source) = resolve_route(cfg, &mut payload);
 
     // Resolve provider + API key.
     let provider = cfg
@@ -188,16 +200,17 @@ mod tests {
     #[test]
     fn defaults_apply_when_body_has_no_model() {
         let mut payload = json!({"messages": []});
-        let (provider, model) = resolve_route(&cfg(), &mut payload);
+        let (provider, model, source) = resolve_route(&cfg(), &mut payload);
         assert_eq!(provider, "alpha");
         assert_eq!(model, "alpha-default-model");
         assert_eq!(payload["model"], "alpha-default-model");
+        assert_eq!(source, RouteSource::Default);
     }
 
     #[test]
     fn body_model_passes_through_to_default_provider() {
         let mut payload = json!({"model": "some-explicit-model", "messages": []});
-        let (provider, model) = resolve_route(&cfg(), &mut payload);
+        let (provider, model, _source) = resolve_route(&cfg(), &mut payload);
         assert_eq!(provider, "alpha");
         assert_eq!(model, "some-explicit-model");
     }
@@ -205,10 +218,11 @@ mod tests {
     #[test]
     fn provider_prefixed_model_field_switches_provider() {
         let mut payload = json!({"model": "beta/some-model", "messages": []});
-        let (provider, model) = resolve_route(&cfg(), &mut payload);
+        let (provider, model, source) = resolve_route(&cfg(), &mut payload);
         assert_eq!(provider, "beta");
         assert_eq!(model, "some-model");
         assert_eq!(payload["model"], "some-model");
+        assert_eq!(source, RouteSource::Explicit);
     }
 
     #[test]
@@ -216,7 +230,7 @@ mod tests {
         // `/model beta/org/model-id` -- only the first slash separates the
         // provider; the rest is the upstream model id verbatim.
         let mut payload = json!({"model": "beta/org/model-id", "messages": []});
-        let (provider, model) = resolve_route(&cfg(), &mut payload);
+        let (provider, model, _source) = resolve_route(&cfg(), &mut payload);
         assert_eq!(provider, "beta");
         assert_eq!(model, "org/model-id");
     }
@@ -224,7 +238,7 @@ mod tests {
     #[test]
     fn non_provider_prefix_passes_through_unchanged() {
         let mut payload = json!({"model": "x-ai/grok-code-fast-1", "messages": []});
-        let (provider, model) = resolve_route(&cfg(), &mut payload);
+        let (provider, model, _source) = resolve_route(&cfg(), &mut payload);
         assert_eq!(provider, "alpha");
         assert_eq!(model, "x-ai/grok-code-fast-1");
     }
@@ -232,7 +246,7 @@ mod tests {
     #[test]
     fn bare_provider_name_uses_configured_default_model() {
         let mut payload = json!({"model": "beta", "messages": []});
-        let (provider, model) = resolve_route(&cfg(), &mut payload);
+        let (provider, model, _source) = resolve_route(&cfg(), &mut payload);
         assert_eq!(provider, "beta");
         assert_eq!(model, "beta-default-model");
     }
@@ -242,7 +256,7 @@ mod tests {
         // `alpha` has no configured default model, so the string stays a model
         // id on the default provider rather than selecting provider `alpha`.
         let mut payload = json!({"model": "alpha", "messages": []});
-        let (provider, model) = resolve_route(&cfg(), &mut payload);
+        let (provider, model, _source) = resolve_route(&cfg(), &mut payload);
         assert_eq!(provider, "alpha");
         assert_eq!(model, "alpha");
     }
@@ -250,7 +264,7 @@ mod tests {
     #[test]
     fn trailing_slash_does_not_switch_provider() {
         let mut payload = json!({"model": "beta/", "messages": []});
-        let (provider, model) = resolve_route(&cfg(), &mut payload);
+        let (provider, model, _source) = resolve_route(&cfg(), &mut payload);
         assert_eq!(provider, "alpha");
         assert_eq!(model, "beta/");
     }
@@ -261,7 +275,7 @@ mod tests {
             "model": "beta/field-model",
             "messages": [{"role": "user", "content": "/model alpha/text-model hi"}]
         });
-        let (provider, model) = resolve_route(&cfg(), &mut payload);
+        let (provider, model, _source) = resolve_route(&cfg(), &mut payload);
         assert_eq!(provider, "alpha");
         assert_eq!(model, "text-model");
         // Command stripped, remainder kept, final model written back.
@@ -276,8 +290,31 @@ mod tests {
         let mut payload = json!({
             "messages": [{"role": "user", "content": "/model nope/whatever hi"}]
         });
-        let (provider, model) = resolve_route(&cfg(), &mut payload);
+        let (provider, model, _source) = resolve_route(&cfg(), &mut payload);
         assert_eq!(provider, "nope");
         assert_eq!(model, "whatever");
+    }
+
+    #[test]
+    fn passthrough_model_is_default_source() {
+        let mut payload = json!({"model": "x-ai/grok-code-fast-1", "messages": []});
+        let (_, _, source) = resolve_route(&cfg(), &mut payload);
+        assert_eq!(source, RouteSource::Default);
+    }
+
+    #[test]
+    fn text_command_is_explicit_source() {
+        let mut payload = json!({
+            "messages": [{"role": "user", "content": "/model beta/some-model hi"}]
+        });
+        let (_, _, source) = resolve_route(&cfg(), &mut payload);
+        assert_eq!(source, RouteSource::Explicit);
+    }
+
+    #[test]
+    fn bare_provider_name_is_explicit_source() {
+        let mut payload = json!({"model": "beta", "messages": []});
+        let (_, _, source) = resolve_route(&cfg(), &mut payload);
+        assert_eq!(source, RouteSource::Explicit);
     }
 }
