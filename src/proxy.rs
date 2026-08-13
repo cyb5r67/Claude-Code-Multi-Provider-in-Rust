@@ -7,6 +7,7 @@ use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use futures_util::StreamExt;
 use reqwest::header::CONTENT_TYPE;
 use serde_json::{json, Value};
 
@@ -232,8 +233,10 @@ async fn escalate(
 }
 
 /// Send the sentinel-instrumented attempt to the local tier and inspect the
-/// leading response text. SSE inspection lands in Task 11; until then
-/// streaming responses pass through as Clean.
+/// leading response text. For `text/event-stream` responses, chunks are fed
+/// to `SseTextScanner` as they arrive; once a verdict is reached the buffered
+/// prefix is released chained with the remaining upstream stream (or the
+/// buffer alone, if the stream ended before a verdict).
 async fn local_attempt(
     state: &AppState,
     orch: &Arc<Orchestrator>,
@@ -285,12 +288,49 @@ async fn local_attempt(
         .map(|v| v.contains("text/event-stream"))
         .unwrap_or(false);
     if is_sse {
-        // Task 11 replaces this stub with sentinel scanning.
-        let body_stream = upstream.bytes_stream();
-        let mut response = Response::new(Body::from_stream(body_stream));
-        *response.status_mut() = status;
-        response.headers_mut().insert(CONTENT_TYPE, content_type);
-        return Ok(LocalOutcome::Clean(response.into_response()));
+        let mut scanner = stream::SseTextScanner::new(orch.cfg.sentinel.clone());
+        let mut byte_stream = upstream.bytes_stream();
+        loop {
+            match byte_stream.next().await {
+                Some(Ok(chunk)) => match scanner.push(&chunk) {
+                    SentinelVerdict::Sentinel => return Ok(LocalOutcome::Escalate),
+                    SentinelVerdict::Clean => {
+                        let head = futures_util::stream::iter(
+                            scanner
+                                .into_buffered()
+                                .into_iter()
+                                .map(Ok::<_, reqwest::Error>),
+                        );
+                        let body = Body::from_stream(head.chain(byte_stream));
+                        let mut response = Response::new(body);
+                        *response.status_mut() = status;
+                        response.headers_mut().insert(CONTENT_TYPE, content_type);
+                        return Ok(LocalOutcome::Clean(response.into_response()));
+                    }
+                    SentinelVerdict::Undetermined => continue,
+                },
+                Some(Err(source)) => {
+                    return Err(AppError::Upstream {
+                        provider: provider_key.clone(),
+                        source,
+                    })
+                }
+                None => {
+                    // Stream ended before a verdict (short response that is a
+                    // proper prefix of the sentinel): deliver what we have.
+                    let head = futures_util::stream::iter(
+                        scanner
+                            .into_buffered()
+                            .into_iter()
+                            .map(Ok::<_, reqwest::Error>),
+                    );
+                    let mut response = Response::new(Body::from_stream(head));
+                    *response.status_mut() = status;
+                    response.headers_mut().insert(CONTENT_TYPE, content_type);
+                    return Ok(LocalOutcome::Clean(response.into_response()));
+                }
+            }
+        }
     }
 
     let bytes = upstream

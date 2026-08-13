@@ -637,3 +637,133 @@ async fn explicit_model_selection_bypasses_orchestrator() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body, json!({"routed": "cloud-explicit"}));
 }
+
+fn sse_body(first_text: &str, rest: &str) -> String {
+    format!(
+        "event: message_start\n\
+         data: {{\"type\":\"message_start\",\"message\":{{\"id\":\"msg_1\"}}}}\n\n\
+         event: content_block_start\n\
+         data: {{\"type\":\"content_block_start\",\"index\":0,\"content_block\":{{\"type\":\"text\",\"text\":\"\"}}}}\n\n\
+         event: content_block_delta\n\
+         data: {{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{{\"type\":\"text_delta\",\"text\":\"{first_text}\"}}}}\n\n\
+         event: content_block_delta\n\
+         data: {{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{{\"type\":\"text_delta\",\"text\":\"{rest}\"}}}}\n\n\
+         event: message_stop\n\
+         data: {{\"type\":\"message_stop\"}}\n\n"
+    )
+}
+
+/// Send and return the raw body string (for SSE responses).
+async fn send_raw(app: axum::Router, body: Value) -> (StatusCode, String, String) {
+    let req = Request::builder()
+        .method("POST")
+        .uri("/v1/messages")
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    (
+        status,
+        String::from_utf8_lossy(&bytes).to_string(),
+        content_type,
+    )
+}
+
+#[tokio::test]
+async fn sse_sentinel_escalates_to_cloud() {
+    let local = MockServer::start().await;
+    let cloud = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_raw(sse_body("<<ESCALATE>>", ""), "text/event-stream"),
+        )
+        .expect(1)
+        .mount(&local)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(body_partial_json(json!({"model": "cloud-big-model"})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"routed": "cloud"})))
+        .expect(1)
+        .mount(&cloud)
+        .await;
+
+    let cfg = Config::from_toml_str(&orchestrated_config_toml(
+        &local.uri(),
+        &cloud.uri(),
+        10,
+        "cloud",
+    ))
+    .unwrap();
+    let app = proxy::router(build_state(cfg).unwrap());
+
+    let (status, body) = send(
+        app,
+        json!({
+            "model": "m", "stream": true,
+            "messages": [{"role": "user", "content": "hard streaming question"}]
+        }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, json!({"routed": "cloud"}));
+}
+
+#[tokio::test]
+async fn sse_clean_response_streams_through_verbatim() {
+    let local = MockServer::start().await;
+    let cloud = MockServer::start().await;
+
+    let full_body = sse_body("Hello", " there");
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw(full_body.clone(), "text/event-stream"),
+        )
+        .expect(1)
+        .mount(&local)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(0)
+        .mount(&cloud)
+        .await;
+
+    let cfg = Config::from_toml_str(&orchestrated_config_toml(
+        &local.uri(),
+        &cloud.uri(),
+        10,
+        "cloud",
+    ))
+    .unwrap();
+    let app = proxy::router(build_state(cfg).unwrap());
+
+    let (status, body, content_type) = send_raw(
+        app,
+        json!({
+            "model": "m", "stream": true,
+            "messages": [{"role": "user", "content": "easy streaming question"}]
+        }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(content_type.contains("text/event-stream"));
+    // Every byte the local tier produced reaches the client unmodified.
+    assert_eq!(body, full_body);
+}
