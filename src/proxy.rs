@@ -34,6 +34,10 @@ pub struct AppState {
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/v1/messages", post(messages_proxy))
+        .route(
+            "/v1/chat/completions",
+            post(crate::chat_proxy::chat_completions),
+        )
         .route("/v1/models", get(crate::chat_proxy::models))
         .route(
             "/chat/settings",
@@ -213,7 +217,7 @@ enum LocalOutcome {
 }
 
 /// Phase 1 sentinel cascade: try the local tier, escalate on sentinel.
-async fn cascade(
+pub(crate) async fn cascade(
     state: &AppState,
     orch: &Arc<Orchestrator>,
     original: Value,

@@ -15,12 +15,16 @@ pub const TIER_LOCAL: &str = "local";
 pub const TIER_CLOUD: &str = "cloud";
 pub const TIER_STATIC: &str = "static";
 
+pub const CHAT_MODE_PIPELINE: &str = "pipeline";
+pub const CHAT_MODE_PASSTHROUGH: &str = "passthrough";
+
 /// All proxy instruments, registered on one private registry.
 pub struct Metrics {
     registry: Registry,
     pub requests_total: IntCounterVec,
     pub request_duration_seconds: HistogramVec,
     pub tier_requests_total: IntCounterVec,
+    pub chat_requests_total: IntCounterVec,
     pub escalations_total: IntCounterVec,
     pub budget_denied_total: IntCounter,
     pub cloud_budget_used: IntGauge,
@@ -57,6 +61,14 @@ impl Metrics {
             &["tier"],
         )
         .expect("valid metric");
+        let chat_requests_total = IntCounterVec::new(
+            Opts::new(
+                "bb_chat_requests_total",
+                "OpenAI-dialect chat requests by mode (pipeline vs passthrough)",
+            ),
+            &["mode"],
+        )
+        .expect("valid metric");
         let escalations_total = IntCounterVec::new(
             Opts::new("bb_escalations_total", "Granted escalations by trigger"),
             &["trigger"],
@@ -91,6 +103,9 @@ impl Metrics {
             .register(Box::new(tier_requests_total.clone()))
             .expect("register");
         registry
+            .register(Box::new(chat_requests_total.clone()))
+            .expect("register");
+        registry
             .register(Box::new(escalations_total.clone()))
             .expect("register");
         registry
@@ -111,6 +126,7 @@ impl Metrics {
             requests_total,
             request_duration_seconds,
             tier_requests_total,
+            chat_requests_total,
             escalations_total,
             budget_denied_total,
             cloud_budget_used,
