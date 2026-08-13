@@ -93,6 +93,34 @@ pub fn conversation_key(payload: &Value) -> Option<String> {
     Some(format!("{:x}", Sha256::digest(text.as_bytes())))
 }
 
+/// System note appended when the budget denies an escalation Qwen asked for.
+pub const ESCALATION_UNAVAILABLE_NOTE: &str =
+    "Escalation is currently unavailable; answer the request yourself as best you can.";
+
+/// The instruction injected into local-tier attempts (spec wording).
+pub fn sentinel_instruction(sentinel: &str) -> String {
+    format!(
+        "If this task is beyond your capability, output {sentinel} as your \
+         very first token and nothing else."
+    )
+}
+
+/// Append a note to the request's system prompt, whatever shape it has.
+pub fn append_system_note(payload: &mut Value, note: &str) {
+    match payload.get_mut("system") {
+        Some(Value::String(s)) => {
+            s.push_str("\n\n");
+            s.push_str(note);
+        }
+        Some(Value::Array(blocks)) => {
+            blocks.push(serde_json::json!({"type": "text", "text": note}));
+        }
+        _ => {
+            payload["system"] = Value::String(note.to_string());
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -194,5 +222,42 @@ mod tests {
         assert!(!o.try_reserve_cloud_call_at(t0 + Duration::from_secs(1)));
         // Still exactly one reservation aged out at the hour mark.
         assert!(o.try_reserve_cloud_call_at(t0 + Duration::from_secs(60 * 60 + 1)));
+    }
+
+    #[test]
+    fn note_appends_to_string_system() {
+        let mut payload = json!({"system": "Be terse.", "messages": []});
+        append_system_note(&mut payload, "NOTE");
+        assert_eq!(payload["system"], "Be terse.\n\nNOTE");
+    }
+
+    #[test]
+    fn note_appends_block_to_array_system() {
+        let mut payload = json!({
+            "system": [{"type": "text", "text": "Be terse."}],
+            "messages": []
+        });
+        append_system_note(&mut payload, "NOTE");
+        assert_eq!(
+            payload["system"],
+            json!([
+                {"type": "text", "text": "Be terse."},
+                {"type": "text", "text": "NOTE"}
+            ])
+        );
+    }
+
+    #[test]
+    fn note_creates_system_when_absent() {
+        let mut payload = json!({"messages": []});
+        append_system_note(&mut payload, "NOTE");
+        assert_eq!(payload["system"], "NOTE");
+    }
+
+    #[test]
+    fn sentinel_instruction_names_the_sentinel() {
+        let text = sentinel_instruction("<<ESCALATE>>");
+        assert!(text.contains("<<ESCALATE>>"));
+        assert!(text.contains("very first token"));
     }
 }
