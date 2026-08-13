@@ -32,6 +32,10 @@ process-flow and module diagrams (Mermaid).
   - Responses stream straight through (SSE and JSON alike), preserving the
     upstream status and content type.
 - `GET /health` — returns `{"status":"ok"}`.
+- Optional **hierarchical orchestrator**: answer conversations with a local
+  model first and transparently escalate to a cloud model when the local tier
+  signals a task is beyond it. See the
+  [user guide](docs/USER_GUIDE.md#hierarchical-orchestrator-local-first-with-cloud-escalation).
 
 ## Configuration
 

@@ -105,6 +105,49 @@ INFO big_brother::proxy: routing request provider=qwen model=qwen3.6:27b base_ur
 
 ---
 
+## Hierarchical orchestrator (local-first with cloud escalation)
+
+With an `[orchestrator]` section in the config, Big Brother answers every
+fresh conversation with the **local tier** first (e.g. Qwen on LM Studio). The
+proxy injects a system instruction telling the local model to output the
+sentinel token (`<<ESCALATE>>` by default) as its very first token when a task
+is beyond it. When that happens, the proxy silently replays the original
+request to the **escalation provider** and the conversation stays on the cloud
+tier until it ends ("sticky").
+
+```toml
+[orchestrator]
+local_provider = "qwen"
+escalation_provider = "anthropic"
+escalation_model = "claude-opus-5"
+
+[providers.qwen]
+base_url = "http://192.168.1.10:8088/anthropic/v1/messages"
+api_key_env = "LMSTUDIO"
+model = "qwen3.6:27b"
+
+[providers.anthropic]
+base_url = "https://api.anthropic.com/v1/messages"
+api_key_env = "ANTHROPIC_API_KEY"
+auth_style = "anthropic"
+```
+
+Rules of thumb:
+
+- **You always win:** `/model provider/model` bypasses orchestration for that
+  request.
+- **Budget guard:** at most `max_cloud_requests_per_hour` escalations per hour
+  (default 50). Beyond that, requests are answered locally and a warning is
+  logged.
+- **Audit:** every escalation logs one line —
+  `escalating to cloud tier trigger=sentinel provider=anthropic model=claude-opus-5`.
+- **Local tier down?** `fail_mode = "cloud"` (default) escalates;
+  `fail_mode = "error"` surfaces the error as before.
+- Local attempts are sent with the local provider's configured `model`;
+  escalations are sent with `escalation_model`.
+
+---
+
 ## Example: local LM Studio hosts
 
 One provider per machine, each serving a different model. LM Studio doesn't
