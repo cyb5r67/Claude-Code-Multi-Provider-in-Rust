@@ -4,6 +4,7 @@
 pub mod config;
 pub mod error;
 pub mod model_command;
+pub mod orchestrator;
 pub mod proxy;
 pub mod stream;
 
