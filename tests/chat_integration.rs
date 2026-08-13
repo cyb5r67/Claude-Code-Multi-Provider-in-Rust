@@ -335,3 +335,71 @@ async fn malformed_chat_request_is_400_openai_shaped() {
     let v: Value = serde_json::from_str(&body).unwrap();
     assert_eq!(v["error"]["type"], "invalid_request_error");
 }
+
+#[tokio::test]
+async fn passthrough_forwards_openai_dialect_with_model_rewrite() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .and(body_partial_json(json!({
+            "model": "local-model",
+            "messages": [{"role": "user", "content": "hi"}],
+            "some_openai_field": {"passed": "through"}
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "chatcmpl-raw", "object": "chat.completion",
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": "raw"},
+                         "finish_reason": "stop"}]
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let state_file = temp_state("passthrough");
+    let cfg = Config::from_toml_str(&chat_config(&server.uri(), &state_file)).unwrap();
+    let state = build_state(cfg).unwrap();
+    let (status, _) = put(
+        proxy::router(state.clone()),
+        "/chat/settings",
+        json!({"pipeline_enabled": false, "model_override": "cascade"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, body) = post_chat(
+        proxy::router(state),
+        json!({"model": "big-brother",
+               "messages": [{"role": "user", "content": "hi"}],
+               "some_openai_field": {"passed": "through"}}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "body: {body}");
+    // Response comes back untouched -- no translation in passthrough mode.
+    let v: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["id"], "chatcmpl-raw");
+    let _ = std::fs::remove_file(&state_file);
+}
+
+#[tokio::test]
+async fn passthrough_unreachable_upstream_is_502_openai_shaped() {
+    // Port 1 is never listening.
+    let state_file = temp_state("pt502");
+    let cfg = Config::from_toml_str(&chat_config("http://127.0.0.1:1", &state_file)).unwrap();
+    let state = build_state(cfg).unwrap();
+    let (status, _) = put(
+        proxy::router(state.clone()),
+        "/chat/settings",
+        json!({"pipeline_enabled": false, "model_override": "cascade"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, body) = post_chat(
+        proxy::router(state),
+        json!({"model": "big-brother", "messages": [{"role": "user", "content": "hi"}]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    let v: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["error"]["type"], "api_error");
+    let _ = std::fs::remove_file(&state_file);
+}

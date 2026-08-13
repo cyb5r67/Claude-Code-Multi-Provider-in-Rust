@@ -149,14 +149,45 @@ pub async fn chat_completions(State(state): State<AppState>, body: Bytes) -> Res
     }
 }
 
-/// Passthrough: forward the OpenAI request to the configured local endpoint.
-/// Replaced with the real implementation in the passthrough task.
-async fn passthrough(_state: &AppState, _req: Value) -> Response {
-    openai_error(
-        StatusCode::NOT_IMPLEMENTED,
-        "api_error",
-        "passthrough not yet implemented",
-    )
+/// Passthrough: forward the OpenAI request to the configured local endpoint,
+/// rewriting only the model id. The response streams back verbatim.
+async fn passthrough(state: &AppState, mut req: Value) -> Response {
+    // The chat handler only calls this when state.chat is Some; config.chat
+    // is Some whenever state.chat is (both derive from the same section).
+    let Some(chat_cfg) = &state.config.chat else {
+        return not_configured();
+    };
+    req["model"] = Value::String(chat_cfg.passthrough_model.clone());
+
+    let upstream = match state
+        .client
+        .post(&chat_cfg.passthrough_url)
+        .json(&req)
+        .send()
+        .await
+    {
+        Ok(resp) => resp,
+        Err(e) => {
+            return openai_error(
+                StatusCode::BAD_GATEWAY,
+                "api_error",
+                &format!("failed to reach passthrough endpoint: {e}"),
+            )
+        }
+    };
+    let status =
+        StatusCode::from_u16(upstream.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+    let content_type = upstream
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/json")
+        .to_string();
+    let mut resp = Response::new(Body::from_stream(upstream.bytes_stream()));
+    *resp.status_mut() = status;
+    resp.headers_mut()
+        .insert(CONTENT_TYPE, content_type.parse().unwrap());
+    resp
 }
 
 /// Convert the pipeline's AppError into an OpenAI-shaped error response.
