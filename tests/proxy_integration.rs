@@ -1023,3 +1023,30 @@ async fn status_reflects_escalation_budget_and_sticky() {
         8
     );
 }
+
+#[tokio::test]
+async fn panel_serves_embedded_html() {
+    let server = MockServer::start().await;
+    let cfg = Config::from_toml_str(&config_toml(&server.uri(), &server.uri())).unwrap();
+    let app = proxy::router(build_state(cfg).unwrap());
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/panel")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    assert!(content_type.starts_with("text/html"));
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    let html = String::from_utf8_lossy(&bytes);
+    assert!(html.contains("Big Brother status"));
+    assert!(html.contains("fetchStatus"));
+}

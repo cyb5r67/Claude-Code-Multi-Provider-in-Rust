@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Big Brother status</title>
+<style>
+  :root { --bg:#12141a; --card:#1c2028; --text:#e6e8ee; --muted:#8a92a6;
+          --line:#2a3040; --ok:#4ade80; --warn:#fbbf24; --bad:#f87171; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:24px; background:var(--bg); color:var(--text);
+         font:14px/1.5 ui-monospace, "Cascadia Mono", Consolas, monospace; }
+  .wrap { max-width:900px; margin:0 auto; }
+  header { display:flex; align-items:center; gap:12px; margin-bottom:20px; }
+  h1 { font-size:18px; margin:0; }
+  .ver { color:var(--muted); }
+  .dot { width:10px; height:10px; border-radius:50%; background:var(--ok); }
+  .dot.down { background:var(--bad); }
+  .stale { opacity:.45; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px;
+          padding:16px; margin-bottom:16px; }
+  .card h2 { font-size:13px; margin:0 0 10px; color:var(--muted);
+             text-transform:uppercase; letter-spacing:.08em; }
+  .kv { display:grid; grid-template-columns:auto 1fr; gap:2px 16px; }
+  .kv div:nth-child(odd) { color:var(--muted); }
+  .tiles { display:flex; gap:16px; }
+  .tile { flex:1; text-align:center; }
+  .tile .n { font-size:26px; }
+  .tile .l { color:var(--muted); font-size:12px; }
+  .bar { height:10px; background:var(--line); border-radius:5px; overflow:hidden;
+         margin:8px 0 4px; }
+  .bar span { display:block; height:100%; background:var(--ok); }
+  .bar.warn span { background:var(--warn); }
+  .bar.bad span { background:var(--bad); }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:normal; font-size:12px; }
+  .chip { padding:1px 8px; border-radius:10px; font-size:12px; }
+  .chip.sentinel { background:#3b2f5b; color:#c4b5fd; }
+  .chip.sticky { background:#173a4d; color:#7dd3fc; }
+  .chip.fail_mode { background:#4d3a17; color:#fcd34d; }
+  .chip.budget_denied { background:#4d1f1f; color:#fca5a5; }
+  .empty { color:var(--muted); }
+  .yes { color:var(--ok); } .no { color:var(--bad); }
+</style>
+</head>
+<body>
+<div class="wrap" id="wrap">
+  <header>
+    <span class="dot" id="dot"></span>
+    <h1>Big Brother status</h1>
+    <span class="ver" id="version"></span>
+    <span class="ver" id="state">connecting&hellip;</span>
+  </header>
+  <div class="card">
+    <h2>Orchestrator</h2>
+    <div id="orch-body" class="kv"></div>
+  </div>
+  <div class="card" id="budget-card" hidden>
+    <h2>Cloud budget (last hour)</h2>
+    <div class="bar" id="bar"><span id="bar-fill" style="width:0%"></span></div>
+    <div id="budget-label" class="empty"></div>
+  </div>
+  <div class="card" id="tiles-card" hidden>
+    <div class="tiles">
+      <div class="tile"><div class="n" id="t-sticky">0</div><div class="l">sticky cloud conversations</div></div>
+      <div class="tile"><div class="n" id="t-esc">0</div><div class="l">escalations since start</div></div>
+      <div class="tile"><div class="n" id="t-denied">0</div><div class="l">budget-denied since start</div></div>
+    </div>
+  </div>
+  <div class="card" id="esc-card" hidden>
+    <h2>Recent escalations</h2>
+    <div id="esc-body"></div>
+  </div>
+  <div class="card">
+    <h2>Providers</h2>
+    <div id="prov-body"></div>
+  </div>
+</div>
+<script>
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+  });
+}
+function render(data) {
+  document.getElementById("version").textContent = "v" + data.proxy.version;
+  var o = data.orchestrator;
+  ["budget-card", "tiles-card", "esc-card"].forEach(function (id) {
+    document.getElementById(id).hidden = !o;
+  });
+  var ob = document.getElementById("orch-body");
+  if (!o) {
+    ob.innerHTML = '<div>state</div><div class="empty">orchestrator disabled</div>';
+  } else {
+    ob.innerHTML =
+      "<div>tiers</div><div>" + esc(o.local_provider) + " → " + esc(o.escalation_provider) + "</div>" +
+      "<div>escalation model</div><div>" + esc(o.escalation_model) + "</div>" +
+      "<div>sentinel</div><div>" + esc(o.sentinel) + "</div>" +
+      "<div>fail mode</div><div>" + esc(o.fail_mode) + "</div>";
+    var b = o.budget;
+    var pct = b.max_per_hour ? Math.round(100 * b.used_last_hour / b.max_per_hour) : 0;
+    var bar = document.getElementById("bar");
+    bar.className = "bar" + (pct >= 100 ? " bad" : pct >= 80 ? " warn" : "");
+    document.getElementById("bar-fill").style.width = Math.min(pct, 100) + "%";
+    document.getElementById("budget-label").textContent =
+      b.used_last_hour + " / " + b.max_per_hour + " used, " + b.remaining + " remaining";
+    document.getElementById("t-sticky").textContent = o.sticky_cloud_conversations;
+    document.getElementById("t-esc").textContent = o.escalations.total_since_start;
+    document.getElementById("t-denied").textContent = o.escalations.budget_denied_since_start;
+    var rows = o.escalations.recent.map(function (r) {
+      return "<tr><td>" + new Date(r.at_epoch_secs * 1000).toLocaleTimeString() + "</td>" +
+        '<td><span class="chip ' + esc(r.trigger) + '">' + esc(r.trigger) + "</span></td>" +
+        "<td>" + esc(r.provider) + " / " + esc(r.model) + "</td>" +
+        "<td>" + esc(r.conversation_key_prefix || "—") + "</td></tr>";
+    }).join("");
+    document.getElementById("esc-body").innerHTML = rows
+      ? "<table><tr><th>time</th><th>trigger</th><th>target</th><th>conversation</th></tr>" + rows + "</table>"
+      : '<div class="empty">No escalations yet.</div>';
+  }
+  document.getElementById("prov-body").innerHTML =
+    "<table><tr><th>name</th><th>base_url</th><th>auth</th><th>key</th></tr>" +
+    data.proxy.providers.map(function (p) {
+      return "<tr><td>" + esc(p.name) + "</td><td>" + esc(p.base_url) + "</td>" +
+        "<td>" + esc(p.auth_style) + "</td>" +
+        (p.api_key_present ? '<td class="yes">present</td>' : '<td class="no">missing</td>') + "</tr>";
+    }).join("") +
+    "</table>";
+}
+async function fetchStatus() {
+  var dot = document.getElementById("dot");
+  var state = document.getElementById("state");
+  var wrap = document.getElementById("wrap");
+  try {
+    var resp = await fetch("/status");
+    if (!resp.ok) throw new Error(resp.status);
+    render(await resp.json());
+    dot.classList.remove("down");
+    state.textContent = "live";
+    wrap.classList.remove("stale");
+  } catch (e) {
+    dot.classList.add("down");
+    state.textContent = "proxy unreachable";
+    wrap.classList.add("stale");
+  }
+}
+fetchStatus();
+setInterval(fetchStatus, 3000);
+</script>
+</body>
+</html>

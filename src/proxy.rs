@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use axum::body::{Body, Bytes};
 use axum::extract::State;
-use axum::response::{IntoResponse, Response};
+use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use futures_util::StreamExt;
@@ -32,6 +32,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/messages", post(messages_proxy))
         .route("/health", get(health))
         .route("/status", get(status))
+        .route("/panel", get(panel))
         .with_state(state)
 }
 
@@ -65,6 +66,11 @@ async fn status(State(state): State<AppState>) -> Json<Value> {
         },
         "orchestrator": orchestrator,
     }))
+}
+
+/// The embedded status panel (single self-contained file, no external assets).
+async fn panel() -> Html<&'static str> {
+    Html(include_str!("panel.html"))
 }
 
 /// Attach the provider's authentication headers to an outgoing request.
