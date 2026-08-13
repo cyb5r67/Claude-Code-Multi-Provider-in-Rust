@@ -1,4 +1,4 @@
-//! claude-multi-proxy: a local reverse proxy that routes Claude Code requests to
+//! Big Brother: a local reverse proxy that routes Claude Code requests to
 //! multiple LLM providers, with in-session `/model <provider>/<model>` switching.
 
 pub mod config;

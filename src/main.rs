@@ -3,8 +3,8 @@
 use std::path::Path;
 use std::process::ExitCode;
 
-use claude_multi_proxy::config::Config;
-use claude_multi_proxy::{build_state, log_key_presence, proxy};
+use big_brother::config::Config;
+use big_brother::{build_state, log_key_presence, proxy};
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]

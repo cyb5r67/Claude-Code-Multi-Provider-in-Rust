@@ -1,6 +1,6 @@
 # Architecture
 
-Documentation and process-flow diagrams for `claude-multi-proxy`, a local
+Documentation and process-flow diagrams for Big Brother, a local
 reverse proxy that routes [Claude Code](https://claude.com/claude-code) requests
 to multiple LLM providers with in-session `/model` switching.
 
@@ -17,7 +17,7 @@ Where the proxy sits between Claude Code and the upstream providers.
 flowchart LR
     CC["Claude Code CLI<br/>ANTHROPIC_BASE_URL=<br/>http://localhost:8787"]
 
-    subgraph proxy["claude-multi-proxy (127.0.0.1:8787)"]
+    subgraph proxy["Big Brother (127.0.0.1:8787)"]
         H1["POST /v1/messages"]
         H2["GET /health"]
     end
@@ -260,4 +260,4 @@ flowchart LR
 
 - [README.md](../README.md) — overview and quick start
 - [User guide](USER_GUIDE.md) — configuration reference, model switching, troubleshooting
-- [Design spec](superpowers/specs/2026-07-10-claude-multi-proxy-rust-design.md) — original design decisions (historical; routing has since moved to the model field)
+- [Design spec](superpowers/specs/2026-07-10-big-brother-rust-design.md) — original design decisions (historical; routing has since moved to the model field)

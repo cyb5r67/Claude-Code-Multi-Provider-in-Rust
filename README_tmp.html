@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>README.md</title>
+    <meta http-equiv="Content-type" content="text/html;charset=UTF-8">
+    
+<style>
+/* https://github.com/microsoft/vscode/blob/master/extensions/markdown-language-features/media/markdown.css */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+body {
+	font-family: var(--vscode-markdown-font-family, -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif);
+	font-size: var(--vscode-markdown-font-size, 14px);
+	padding: 0 26px;
+	line-height: var(--vscode-markdown-line-height, 22px);
+	word-wrap: break-word;
+}
+
+html,footer,header{
+	font-family: var(--vscode-markdown-font-family, -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif);
+	font-size: var(--vscode-markdown-font-size, 14px);
+}
+
+#code-csp-warning {
+	position: fixed;
+	top: 0;
+	right: 0;
+	color: white;
+	margin: 16px;
+	text-align: center;
+	font-size: 12px;
+	font-family: sans-serif;
+	background-color:#444444;
+	cursor: pointer;
+	padding: 6px;
+	box-shadow: 1px 1px 1px rgba(0,0,0,.25);
+}
+
+#code-csp-warning:hover {
+	text-decoration: none;
+	background-color:#007acc;
+	box-shadow: 2px 2px 2px rgba(0,0,0,.25);
+}
+
+body.scrollBeyondLastLine {
+	margin-bottom: calc(100vh - 22px);
+}
+
+body.showEditorSelection .code-line {
+	position: relative;
+}
+
+body.showEditorSelection .code-active-line:before,
+body.showEditorSelection .code-line:hover:before {
+	content: "";
+	display: block;
+	position: absolute;
+	top: 0;
+	left: -12px;
+	height: 100%;
+}
+
+body.showEditorSelection li.code-active-line:before,
+body.showEditorSelection li.code-line:hover:before {
+	left: -30px;
+}
+
+.vscode-light.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.15);
+}
+
+.vscode-light.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.40);
+}
+
+.vscode-light.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-dark.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.4);
+}
+
+.vscode-dark.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.60);
+}
+
+.vscode-dark.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-high-contrast.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 160, 0, 0.7);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 160, 0, 1);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+img {
+	max-width: 100%;
+	max-height: 100%;
+}
+
+a {
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+a:focus,
+input:focus,
+select:focus,
+textarea:focus {
+	outline: 1px solid -webkit-focus-ring-color;
+	outline-offset: -1px;
+}
+
+hr {
+	border: 0;
+	height: 2px;
+	border-bottom: 2px solid;
+}
+
+h1 {
+	padding-bottom: 0.3em;
+	line-height: 1.2;
+	border-bottom-width: 1px;
+	border-bottom-style: solid;
+}
+
+h1, h2, h3 {
+	font-weight: normal;
+}
+
+table {
+	border-collapse: collapse;
+}
+
+table > thead > tr > th {
+	text-align: left;
+	border-bottom: 1px solid;
+}
+
+table > thead > tr > th,
+table > thead > tr > td,
+table > tbody > tr > th,
+table > tbody > tr > td {
+	padding: 5px 10px;
+}
+
+table > tbody > tr + tr > td {
+	border-top: 1px solid;
+}
+
+blockquote {
+	margin: 0 7px 0 5px;
+	padding: 0 16px 0 10px;
+	border-left-width: 5px;
+	border-left-style: solid;
+}
+
+code {
+	font-family: Menlo, Monaco, Consolas, "Droid Sans Mono", "Courier New", monospace, "Droid Sans Fallback";
+	font-size: 1em;
+	line-height: 1.357em;
+}
+
+body.wordWrap pre {
+	white-space: pre-wrap;
+}
+
+pre:not(.hljs),
+pre.hljs code > div {
+	padding: 16px;
+	border-radius: 3px;
+	overflow: auto;
+}
+
+pre code {
+	color: var(--vscode-editor-foreground);
+	tab-size: 4;
+}
+
+/** Theming */
+
+.vscode-light pre {
+	background-color: rgba(220, 220, 220, 0.4);
+}
+
+.vscode-dark pre {
+	background-color: rgba(10, 10, 10, 0.4);
+}
+
+.vscode-high-contrast pre {
+	background-color: rgb(0, 0, 0);
+}
+
+.vscode-high-contrast h1 {
+	border-color: rgb(0, 0, 0);
+}
+
+.vscode-light table > thead > tr > th {
+	border-color: rgba(0, 0, 0, 0.69);
+}
+
+.vscode-dark table > thead > tr > th {
+	border-color: rgba(255, 255, 255, 0.69);
+}
+
+.vscode-light h1,
+.vscode-light hr,
+.vscode-light table > tbody > tr + tr > td {
+	border-color: rgba(0, 0, 0, 0.18);
+}
+
+.vscode-dark h1,
+.vscode-dark hr,
+.vscode-dark table > tbody > tr + tr > td {
+	border-color: rgba(255, 255, 255, 0.18);
+}
+
+</style>
+
+<style>
+/* Tomorrow Theme */
+/* http://jmblog.github.com/color-themes-for-google-code-highlightjs */
+/* Original theme - https://github.com/chriskempson/tomorrow-theme */
+
+/* Tomorrow Comment */
+.hljs-comment,
+.hljs-quote {
+	color: #8e908c;
+}
+
+/* Tomorrow Red */
+.hljs-variable,
+.hljs-template-variable,
+.hljs-tag,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-regexp,
+.hljs-deletion {
+	color: #c82829;
+}
+
+/* Tomorrow Orange */
+.hljs-number,
+.hljs-built_in,
+.hljs-builtin-name,
+.hljs-literal,
+.hljs-type,
+.hljs-params,
+.hljs-meta,
+.hljs-link {
+	color: #f5871f;
+}
+
+/* Tomorrow Yellow */
+.hljs-attribute {
+	color: #eab700;
+}
+
+/* Tomorrow Green */
+.hljs-string,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-addition {
+	color: #718c00;
+}
+
+/* Tomorrow Blue */
+.hljs-title,
+.hljs-section {
+	color: #4271ae;
+}
+
+/* Tomorrow Purple */
+.hljs-keyword,
+.hljs-selector-tag {
+	color: #8959a8;
+}
+
+.hljs {
+	display: block;
+	overflow-x: auto;
+	color: #4d4d4c;
+	padding: 0.5em;
+}
+
+.hljs-emphasis {
+	font-style: italic;
+}
+
+.hljs-strong {
+	font-weight: bold;
+}
+</style>
+
+<style>
+/*
+ * Custom MD PDF CSS
+ */
+html,footer,header{
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif, "Meiryo";
+
+ }
+body {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif, "Meiryo";
+	padding: 0 12px;
+}
+
+pre {
+	background-color: #f8f8f8;
+	border: 1px solid #cccccc;
+	border-radius: 3px;
+	overflow-x: auto;
+	white-space: pre-wrap;
+	overflow-wrap: break-word;
+}
+
+pre:not(.hljs) {
+	padding: 23px;
+	line-height: 19px;
+}
+
+blockquote {
+	background: rgba(127, 127, 127, 0.1);
+	border-color: rgba(0, 122, 204, 0.5);
+}
+
+.emoji {
+	height: 1.4em;
+}
+
+code {
+	font-size: 14px;
+	line-height: 19px;
+}
+
+/* for inline code */
+:not(pre):not(.hljs) > code {
+	color: #C9AE75; /* Change the old color so it seems less like an error */
+	font-size: inherit;
+}
+
+/* Page Break : use <div class="page"/> to insert page break
+-------------------------------------------------------- */
+.page {
+	page-break-after: always;
+}
+
+</style>
+<link rel="stylesheet" href="file:///r%3A/2.Travail/1.Enseignement/Cours/_1.Outils/2.Developpement/1.SCSS/main.css" type="text/css"><link rel="stylesheet" href="file:///d%3A/rdaros/Cours/_1.Outils/2.Developpement/1.SCSS/main.css" type="text/css">
+</head>
+
+<body>
+    <h1 id="big-brother-on-the-fly-model-switching">Big Brother — On-the-Fly Model Switching</h1>
+<p>A local HTTP reverse proxy that routes <a href="https://claude.com/claude-code">Claude Code</a><br>
+requests to multiple LLM providers, with in-session model switching via a<br>
+<code>/model &lt;provider&gt;/&lt;model&gt;</code> command.</p>
+<p>This is a Rust rewrite (axum + reqwest + serde + tracing) of the original<br>
+<a href="https://gist.github.com/spideynolove/13785891385ed6916619ebb991b490b9"><code>simple-proxy.py</code></a><br>
+(FastAPI/httpx).</p>
+<p>See <a href="docs/USER_GUIDE.md">docs/USER_GUIDE.md</a> for the full configuration<br>
+reference, model-switching semantics, an LM Studio example, and<br>
+troubleshooting. See <a href="docs/ARCHITECTURE.md">docs/ARCHITECTURE.md</a> for<br>
+process-flow and module diagrams (Mermaid).</p>
+<h2 id="how-it-works">How it works</h2>
+<ul>
+<li>Listens on <code>127.0.0.1:8787</code> (configurable).</li>
+<li><code>POST /v1/messages</code> — forwards the Claude Code request to the selected provider.
+<ul>
+<li>Provider/model default to the values in <code>config.toml</code>, or the request body's<br>
+own <code>model</code>.</li>
+<li>A <code>model</code> field of the form <code>&lt;provider&gt;/&lt;model&gt;</code> (which is what Claude<br>
+Code's built-in <code>/model</code> command sends) selects that provider directly;<br>
+everything after the first <code>/</code> is forwarded as the model id. A bare<br>
+provider name selects that provider with its configured default <code>model</code>.<br>
+Slash-containing ids whose prefix is <em>not</em> a configured provider (e.g.<br>
+openrouter's <code>x-ai/grok-code-fast-1</code>) pass through to the default provider<br>
+unchanged.</li>
+<li>Legacy: a <code>/model &lt;provider&gt;/&lt;model&gt;</code> command appearing as user message<br>
+<em>text</em> also reroutes the request and is stripped before forwarding. Both<br>
+plain-string and content-block message shapes are handled.</li>
+<li>Responses stream straight through (SSE and JSON alike), preserving the<br>
+upstream status and content type.</li>
+</ul>
+</li>
+<li><code>GET /health</code> — returns <code>{&quot;status&quot;:&quot;ok&quot;}</code>.</li>
+</ul>
+<h2 id="configuration">Configuration</h2>
+<p>Providers, defaults, and server settings live in <code>config.toml</code>. API keys are<br>
+<strong>not</strong> stored in the file — each provider names an environment variable holding<br>
+its key. See the checked-in <a href="config.toml"><code>config.toml</code></a> for the full example.</p>
+<p>The config path is resolved in order of precedence: first CLI argument<br>
+(<code>cargo run -- my-config.toml</code>), then the <code>PROXY_CONFIG</code> env var, then<br>
+<code>./config.toml</code>. The path actually loaded is logged at startup.</p>
+<blockquote>
+<p><strong>Note on the <code>openrouter</code> provider:</strong> the original Python proxy pointed<br>
+<code>openrouter</code> at <code>http://localhost:8787/v1/messages</code> — the proxy's <em>own</em> address —<br>
+which loops back into itself. Run your y-router instance on a separate port<br>
+(the sample config uses <code>8788</code>).</p>
+</blockquote>
+<h2 id="usage">Usage</h2>
+<pre class="hljs"><code><div><span class="hljs-comment"># 1. Set the API keys your providers need</span>
+<span class="hljs-built_in">export</span> DEEPSEEK_API_KEY=...
+<span class="hljs-built_in">export</span> OPENROUTER_API_KEY=...
+<span class="hljs-comment"># (etc. — see config.toml)</span>
+
+<span class="hljs-comment"># 2. Run the proxy (optionally naming a config file)</span>
+cargo run --release -- my-config.toml
+
+<span class="hljs-comment"># 3. Point Claude Code at it</span>
+<span class="hljs-built_in">export</span> ANTHROPIC_BASE_URL=<span class="hljs-string">"http://localhost:8787"</span>
+<span class="hljs-built_in">export</span> ANTHROPIC_API_KEY=<span class="hljs-string">"dummy"</span>
+claude
+</div></code></pre>
+<p>Switch providers mid-session:</p>
+<pre class="hljs"><code><div>/model deepseek/deepseek-chat    # provider + model
+/model deepseek                  # bare provider name -&gt; its configured default model
+</div></code></pre>
+<p>See the <a href="docs/USER_GUIDE.md#switching-providers-and-models">user guide</a> for the<br>
+full semantics (multi-slash model ids, pass-through of non-provider prefixes).</p>
+<h2 id="development">Development</h2>
+<pre class="hljs"><code><div>cargo build      <span class="hljs-comment"># compile</span>
+cargo <span class="hljs-built_in">test</span>       <span class="hljs-comment"># unit tests (config, /model parsing) + integration tests</span>
+cargo run        <span class="hljs-comment"># run with ./config.toml</span>
+</div></code></pre>
+<p>Logging is controlled by <code>RUST_LOG</code> (default <code>info</code>), e.g. <code>RUST_LOG=debug</code>.</p>
+<h2 id="layout">Layout</h2>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Responsibility</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>src/main.rs</code></td>
+<td>Entrypoint: tracing, config load, bind + serve</td>
+</tr>
+<tr>
+<td><code>src/lib.rs</code></td>
+<td>State construction, startup key-presence logging</td>
+</tr>
+<tr>
+<td><code>src/config.rs</code></td>
+<td>TOML config model, loading, API-key resolution</td>
+</tr>
+<tr>
+<td><code>src/model_command.rs</code></td>
+<td>Parse &amp; strip legacy <code>/model</code> text commands</td>
+</tr>
+<tr>
+<td><code>src/proxy.rs</code></td>
+<td>Router, <code>/v1/messages</code> forwarding, <code>/health</code></td>
+</tr>
+<tr>
+<td><code>src/error.rs</code></td>
+<td><code>AppError</code> → HTTP status + JSON error body</td>
+</tr>
+</tbody>
+</table>
+<h2 id="credits">Credits</h2>
+<p>This project is a Rust port of<br>
+<a href="https://gist.github.com/spideynolove/13785891385ed6916619ebb991b490b9"><code>simple-proxy.py</code></a><br>
+by <strong>spideynolove</strong>. The original is a FastAPI/httpx reverse proxy for routing<br>
+Claude Code requests to multiple LLM providers; this project reimplements that<br>
+functionality in Rust (axum + reqwest + serde + tracing) with additional<br>
+changes. Credit for the original design and concept goes to the original author.<br>
+See <a href="NOTICE">NOTICE</a> for attribution details.</p>
+<h2 id="license">License</h2>
+<p>Copyright 2026 Cyb5r LLC.</p>
+<p>Licensed under the <a href="LICENSE">Apache License, Version 2.0</a>. See <a href="NOTICE">NOTICE</a><br>
+for attributions.</p>
+
+</body>
+
+</html>

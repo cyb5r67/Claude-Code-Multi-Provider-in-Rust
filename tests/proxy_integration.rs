@@ -2,8 +2,8 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use claude_multi_proxy::config::Config;
-use claude_multi_proxy::{build_state, proxy};
+use big_brother::config::Config;
+use big_brother::{build_state, proxy};
 use http_body_util::BodyExt;
 use serde_json::{json, Value};
 use tower::ServiceExt; // for `oneshot`

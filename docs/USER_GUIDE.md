@@ -1,6 +1,6 @@
 # User Guide
 
-`claude-multi-proxy` is a local reverse proxy that lets [Claude Code](https://claude.com/claude-code)
+Big Brother is a local reverse proxy that lets [Claude Code](https://claude.com/claude-code)
 talk to any Anthropic-Messages-API-compatible backend — cloud providers
 (DeepSeek, Kimi, Z.AI, OpenRouter via y-router) or local servers such as
 LM Studio — and switch between them mid-session with the `/model` command.
@@ -32,9 +32,9 @@ claude
 The first log line confirms which config file was loaded:
 
 ```
-INFO claude_multi_proxy: loaded config path=config.toml
-INFO claude_multi_proxy: API key present provider=deepseek env=DEEPSEEK_API_KEY
-INFO claude_multi_proxy: proxy listening on http://127.0.0.1:8787
+INFO big_brother: loaded config path=config.toml
+INFO big_brother: API key present provider=deepseek env=DEEPSEEK_API_KEY
+INFO big_brother: proxy listening on http://127.0.0.1:8787
 ```
 
 **Always check the `loaded config path=` line.** The path is resolved in this
@@ -100,7 +100,7 @@ Every routed request is logged, so you can verify a switch landed where you
 expected:
 
 ```
-INFO claude_multi_proxy::proxy: routing request provider=qwen model=qwen3.6:27b base_url=http://192.168.1.10:8088/...
+INFO big_brother::proxy: routing request provider=qwen model=qwen3.6:27b base_url=http://192.168.1.10:8088/...
 ```
 
 ---

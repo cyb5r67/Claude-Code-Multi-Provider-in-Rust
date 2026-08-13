@@ -1,4 +1,4 @@
-# claude-multi-proxy
+# Big Brother — On-the-Fly Model Switching
 
 A local HTTP reverse proxy that routes [Claude Code](https://claude.com/claude-code)
 requests to multiple LLM providers, with in-session model switching via a

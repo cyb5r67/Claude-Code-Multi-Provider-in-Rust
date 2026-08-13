@@ -1,4 +1,4 @@
-# Design: `claude-multi-proxy` (Rust rewrite of simple-proxy.py)
+# Design: Big Brother (Rust rewrite of simple-proxy.py)
 
 Date: 2026-07-10
 
