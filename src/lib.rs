@@ -5,6 +5,7 @@ pub mod config;
 pub mod error;
 pub mod model_command;
 pub mod proxy;
+pub mod stream;
 
 use std::sync::Arc;
 use std::time::Duration;
