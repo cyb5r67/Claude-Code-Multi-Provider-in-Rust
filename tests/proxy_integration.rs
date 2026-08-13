@@ -767,3 +767,110 @@ async fn sse_clean_response_streams_through_verbatim() {
     // Every byte the local tier produced reaches the client unmodified.
     assert_eq!(body, full_body);
 }
+
+#[tokio::test]
+async fn local_http_error_escalates_when_fail_mode_cloud() {
+    let local = MockServer::start().await;
+    let cloud = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(500).set_body_json(json!({"error": "local down"})))
+        .expect(1)
+        .mount(&local)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"routed": "cloud"})))
+        .expect(1)
+        .mount(&cloud)
+        .await;
+
+    let cfg = Config::from_toml_str(&orchestrated_config_toml(
+        &local.uri(),
+        &cloud.uri(),
+        10,
+        "cloud",
+    ))
+    .unwrap();
+    let app = proxy::router(build_state(cfg).unwrap());
+
+    let (status, body) = send(
+        app,
+        json!({"model": "m", "messages": [{"role": "user", "content": "q"}]}),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, json!({"routed": "cloud"}));
+}
+
+#[tokio::test]
+async fn local_http_error_passes_through_when_fail_mode_error() {
+    let local = MockServer::start().await;
+    let cloud = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(500).set_body_json(json!({"error": "local down"})))
+        .expect(1)
+        .mount(&local)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(0)
+        .mount(&cloud)
+        .await;
+
+    let cfg = Config::from_toml_str(&orchestrated_config_toml(
+        &local.uri(),
+        &cloud.uri(),
+        10,
+        "error",
+    ))
+    .unwrap();
+    let app = proxy::router(build_state(cfg).unwrap());
+
+    let (status, body) = send(
+        app,
+        json!({"model": "m", "messages": [{"role": "user", "content": "q"}]}),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(body, json!({"error": "local down"}));
+}
+
+#[tokio::test]
+async fn unreachable_local_escalates_when_fail_mode_cloud() {
+    let cloud = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"routed": "cloud"})))
+        .expect(1)
+        .mount(&cloud)
+        .await;
+
+    // 127.0.0.1:1 refuses connections instantly.
+    let cfg = Config::from_toml_str(&orchestrated_config_toml(
+        "http://127.0.0.1:1",
+        &cloud.uri(),
+        10,
+        "cloud",
+    ))
+    .unwrap();
+    let app = proxy::router(build_state(cfg).unwrap());
+
+    let (status, body) = send(
+        app,
+        json!({"model": "m", "messages": [{"role": "user", "content": "q"}]}),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, json!({"routed": "cloud"}));
+}
