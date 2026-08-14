@@ -1,0 +1,89 @@
+/* Print styling for exported responses. Kept deliberately plain: this should
+   read like a document, not like a web page screenshot. */
+
+@page {
+  size: A4;
+  margin: 20mm 18mm;
+  @bottom-center {
+    content: counter(page) " / " counter(pages);
+    font-family: "DejaVu Sans", sans-serif;
+    font-size: 9pt;
+    color: #666;
+  }
+}
+
+body {
+  font-family: "DejaVu Serif", "Noto Color Emoji", Georgia, serif;
+  font-size: 11pt;
+  line-height: 1.5;
+  color: #1a1a1a;
+  hyphens: auto;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: "DejaVu Sans", "Noto Color Emoji", Helvetica, sans-serif;
+  line-height: 1.25;
+  margin: 1.2em 0 0.4em;
+  page-break-after: avoid;
+}
+
+h1 { font-size: 20pt; margin-top: 0; }
+h2 { font-size: 15pt; }
+h3 { font-size: 12.5pt; }
+h4, h5, h6 { font-size: 11pt; }
+
+p { margin: 0 0 0.7em; orphans: 2; widows: 2; }
+
+a { color: #12507b; text-decoration: none; border-bottom: 1px solid #b9d3e5; }
+
+ul, ol { margin: 0 0 0.7em; padding-left: 1.5em; }
+li { margin-bottom: 0.2em; }
+
+blockquote {
+  margin: 0.8em 0;
+  padding: 0.1em 0 0.1em 1em;
+  border-left: 3px solid #ccd6dd;
+  color: #444;
+  font-style: italic;
+}
+
+code {
+  font-family: "DejaVu Sans Mono", monospace;
+  font-size: 9.5pt;
+  background: #f4f6f8;
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+}
+
+pre {
+  background: #f4f6f8;
+  border: 1px solid #e2e8ee;
+  border-radius: 4px;
+  padding: 0.7em 0.9em;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  page-break-inside: avoid;
+}
+
+pre code { background: none; padding: 0; font-size: 9pt; }
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.8em 0;
+  font-size: 10pt;
+  page-break-inside: avoid;
+}
+
+th, td {
+  border: 1px solid #ccd6dd;
+  padding: 0.35em 0.6em;
+  text-align: left;
+  vertical-align: top;
+}
+
+th { background: #eef2f6; font-family: "DejaVu Sans", sans-serif; }
+
+hr { border: none; border-top: 1px solid #ccd6dd; margin: 1.2em 0; }
+
+img { max-width: 100%; }

@@ -86,6 +86,7 @@ Four things come up, all bound to your machine only:
 |------|-------|-----|
 | Big Brother | <http://localhost:8787> | The proxy; control panel at `/panel` |
 | Open WebUI | <http://localhost:3000> | The chat window |
+| docexport | <http://localhost:8789> | Turns responses into `.docx` / `.pdf` |
 | Prometheus | <http://localhost:9090> | Raw metrics (you rarely need this) |
 | Grafana | <http://localhost:3001> | Dashboards (`admin` / your `GRAFANA_ADMIN_PASSWORD`) |
 
@@ -205,6 +206,7 @@ are in the [User Guide](USER_GUIDE.md#hierarchical-orchestrator-local-first-with
 
 | I want to… | Do this |
 |------------|---------|
+| Save a response as Word or PDF | Click **Export Response** under the message (one-time setup in [docexport](../docexport/README.md)) |
 | Use a different model in Claude Code | `/model <provider>/<model>` in your session |
 | Change which model the chat window uses | Panel → Chat card → **target** |
 | Chat with my local model only, nothing fancy | Panel → Chat card → turn **pipeline** off |

@@ -33,6 +33,23 @@ services:
     restart: unless-stopped
     networks: [webui, proxy]
 
+  docexport:
+    build: ./docexport
+    ports:
+      # Published because the *browser* follows the download link directly;
+      # container-to-container calls use http://docexport:8000 instead.
+      - "127.0.0.1:8789:8000"
+    environment:
+      RETENTION_SECONDS: "${DOCEXPORT_RETENTION_SECONDS:-3600}"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+    networks: [webui] # only Open WebUI needs to reach it
+
   prometheus:
     image: prom/prometheus:latest
     ports:

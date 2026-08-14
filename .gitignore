@@ -6,3 +6,7 @@
 
 # Panel-edited chat settings, persisted at runtime
 chat_state.json
+
+# Python bytecode / test caches from the docexport sidecar
+__pycache__/
+.pytest_cache/

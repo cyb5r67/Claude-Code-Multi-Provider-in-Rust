@@ -223,6 +223,35 @@ reachable from localhost alone — don't widen the bind without adding auth.
 
 ---
 
+## Exporting responses to .docx / .pdf
+
+The stack includes `docexport`, a sidecar that converts a chat response into a
+Word document or PDF, and an Open WebUI Action that adds an **Export
+Response** button under each message.
+
+```sh
+docker compose up -d --build docexport
+curl http://localhost:8789/health      # {"status":"ok"}
+```
+
+Then paste `docexport/openwebui_action.py` into Open WebUI under **Admin
+Panel → Functions → New Function** and enable it for your models. Clicking
+the button appends download links to the chat; files expire after an hour.
+
+Conversion runs through pandoc, so headings, nested lists, tables, fenced
+code blocks, blockquotes and task lists all survive as real document
+structure. PDFs render via WeasyPrint with a print stylesheet — A4, page
+numbers, and fonts that cover accented characters, Greek letters and emoji.
+
+Two behaviors are deliberate: images are downgraded to links rather than
+fetched and embedded, and raw HTML is stripped. Both keep untrusted model
+output from driving the renderer or making outbound requests.
+
+Full reference, including the Valves you may need to change if you browse to
+Open WebUI from another machine: [`docexport/README.md`](../docexport/README.md).
+
+---
+
 ## Running with Docker
 
 Requires Docker Desktop (or Docker Engine with Compose v2.24+; the compose
@@ -239,6 +268,7 @@ What comes up:
 |---------|---------|---------|
 | `big-brother` | <http://localhost:8787> | The proxy — Claude Code target, panel at `/panel` |
 | `open-webui`  | <http://localhost:3000> | Chat UI, routed through the proxy (see [Chat window](#chat-window-open-webui)) |
+| `docexport`   | <http://localhost:8789> | Converts responses to `.docx`/`.pdf` (see [below](#exporting-responses-to-docx--pdf)) |
 | `prometheus`  | <http://localhost:9090> | Scrapes the proxy's `/metrics` every 15 s |
 | `grafana`     | <http://localhost:3001> | Dashboard over Prometheus (`admin` / `GRAFANA_ADMIN_PASSWORD`) |
 

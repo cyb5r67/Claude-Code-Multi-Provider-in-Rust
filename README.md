@@ -17,6 +17,7 @@ This is a Rust rewrite (axum + reqwest + serde + tracing) of the original
 | [Architecture](docs/ARCHITECTURE.md) | Engineers | Process-flow and module diagrams (Mermaid) |
 | [Developer Guide](docs/DEVELOPER_GUIDE.md) | Contributors, operators | Codebase map, invariants, testing conventions, observability, runbook |
 | [Product Brief](docs/PRODUCT_BRIEF.md) | Marketing, non-technical | Positioning, capabilities, messaging, claims discipline |
+| [docexport](docexport/README.md) | Users, contributors | The .docx/.pdf export sidecar and its Open WebUI button |
 
 ## How it works
 
@@ -100,7 +101,9 @@ Edit `docker/config.toml` and `docker compose restart big-brother` to apply
 config changes. Claude Code connects exactly as above.
 Prometheus runs at <http://localhost:9090> and a pre-provisioned Grafana
 dashboard at <http://localhost:3001> (login `admin` /
-`GRAFANA_ADMIN_PASSWORD`).
+`GRAFANA_ADMIN_PASSWORD`). The `docexport` sidecar on
+<http://localhost:8789> converts chat responses to `.docx`/`.pdf` — see
+[docexport/README.md](docexport/README.md).
 
 Switch providers mid-session:
 

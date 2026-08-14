@@ -300,9 +300,16 @@ provider, and model.
 
 ## Docker and release
 
-The stack is four services: `big-brother`, `open-webui`, `prometheus`,
-`grafana`. Networks are deliberately segmented — Grafana reaches only
-Prometheus, never the proxy. All host ports bind to `127.0.0.1`.
+The stack is five services: `big-brother`, `open-webui`, `docexport`,
+`prometheus`, `grafana`. Networks are deliberately segmented — Grafana reaches
+only Prometheus, never the proxy; `docexport` sits on the `webui` network
+only. All host ports bind to `127.0.0.1`.
+
+`docexport` is a Python sidecar with its own tests and its own
+[README](../docexport/README.md); it is not part of the proxy's request path.
+It exists because Open WebUI's Action functions can't install the system
+binaries (pandoc, the WeasyPrint rendering stack) that document conversion
+needs.
 
 Inside the container the proxy binds `0.0.0.0` (Docker port mapping can't reach
 a container's loopback); host-side exposure stays localhost-only through the
