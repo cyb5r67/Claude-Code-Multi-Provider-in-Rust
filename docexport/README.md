@@ -27,11 +27,36 @@ curl http://localhost:8789/health      # {"status":"ok"}
 Then install the button:
 
 1. Open WebUI → **Admin Panel → Functions → New Function**.
-2. Paste the contents of [`openwebui_action.py`](openwebui_action.py).
-3. Save, then enable it for the models you use.
+2. The editor pre-fills a **Filter** scaffold (`class Filter`, with `inlet`
+   and `outlet`). That is a placeholder for a different function type —
+   select all of it and delete it.
+3. Paste [`openwebui_action.py`](openwebui_action.py) in full, including the
+   `"""…"""` header block; that is where `title`, `version` and
+   `requirements` come from. Open WebUI auto-detects the function type from
+   the top-level class name, so `class Action` registers as an Action with no
+   further configuration.
+4. Save.
+5. Enable it in **Workspace → Models**: edit the model you chat with and turn
+   on **Export Response** in its Actions section. Unlike Filters, Actions are
+   not enabled from the Functions page.
 
 An **Export Response** button now appears in the toolbar under each message.
 Clicking it appends download links to the chat.
+
+To copy the file to your clipboard:
+
+```powershell
+Get-Content docexport\openwebui_action.py -Raw | Set-Clipboard   # Windows
+```
+
+```sh
+pbcopy < docexport/openwebui_action.py                            # macOS
+```
+
+If the button appears but nothing happens, `docker compose logs -f open-webui`
+shows the function's traceback; `docker compose exec open-webui curl -fsS
+http://docexport:8000/health` confirms the sidecar is reachable from inside
+that container.
 
 ## Configuration
 
