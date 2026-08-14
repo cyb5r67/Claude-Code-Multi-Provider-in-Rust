@@ -236,9 +236,9 @@ curl http://localhost:8789/health      # {"status":"ok"}
 
 Then paste `docexport/openwebui_action.py` into Open WebUI under **Admin
 Panel → Functions → New Function**, replacing the Filter scaffold the editor
-pre-fills, and enable it per model under **Workspace → Models → Actions**.
-Clicking the button appends download links to the chat; files expire after an
-hour.
+pre-fills. Switch the function **Active**, then turn on **Global** in its
+**…** menu so the button attaches to every model. Clicking it appends
+download links to the chat; files expire after an hour.
 
 Conversion runs through pandoc, so headings, nested lists, tables, fenced
 code blocks, blockquotes and task lists all survive as real document

@@ -36,9 +36,16 @@ Then install the button:
    the top-level class name, so `class Action` registers as an Action with no
    further configuration.
 4. Save.
-5. Enable it in **Workspace → Models**: edit the model you chat with and turn
-   on **Export Response** in its Actions section. Unlike Filters, Actions are
-   not enabled from the Functions page.
+5. Back on **Admin Panel → Functions**, make sure the function's **Active**
+   toggle is on, then open its **…** menu and switch on **Global**. That
+   attaches the button to every model.
+
+   The per-model alternative (**Workspace → Models** → edit a model →
+   **Actions**) only works if you have a workspace model to edit. Workspace
+   models are presets layered on top of a base model, so that page is empty
+   until you create one — and since this proxy deliberately advertises a
+   single virtual `big-brother` model, there is usually nothing to gain from
+   per-model scoping here. Use **Global**.
 
 An **Export Response** button now appears in the toolbar under each message.
 Clicking it appends download links to the chat.
