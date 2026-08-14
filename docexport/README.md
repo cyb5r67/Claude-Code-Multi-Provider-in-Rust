@@ -84,14 +84,21 @@ Set retention from the host with `DOCEXPORT_RETENTION_SECONDS` in `.env`.
 | Valve | Default | Purpose |
 |-------|---------|---------|
 | `service_url` | `http://docexport:8000` | Sidecar address *from the Open WebUI container* |
-| `public_base_url` | `http://localhost:8789` | Sidecar address *from your browser* |
+| `public_base_url` | *(blank)* | Override for the download-link base URL; blank means derive it |
+| `public_port` | `8789` | Host port the sidecar is published on |
 | `formats` | `docx,pdf` | Which formats to generate; set to one to halve the work |
 | `timeout_seconds` | `60` | Client-side give-up |
 
-Those two URLs differ on purpose. The Action calls the service over the Docker
-network; the download link is followed by your browser over the published port.
-**If you open Open WebUI from another machine**, change `public_base_url` to
-your host's LAN address and publish the port accordingly.
+The Action calls the service over the Docker network, but the download link is
+followed by *your browser* over the published port — so the two addresses are
+not the same. Rather than hardcode one, the Action reads the `Host` header
+(or `X-Forwarded-Host`) of the request that triggered it and builds the link
+from that. One install therefore works unchanged from `localhost`, from a LAN
+address, and from a hostname.
+
+Set `public_base_url` only for setups that header can't describe — for example
+a reverse proxy terminating TLS on a different name. It must include the
+scheme and, if non-standard, the port.
 
 ## API
 
@@ -144,9 +151,12 @@ doesn't.
 **Raw HTML is stripped.** The input format is `gfm-raw_html`, so tags never
 reach the renderer. Their text content is kept.
 
-**No authentication.** The service trusts anything that can reach it, exactly
-like the Big Brother panel. It is published on `127.0.0.1` only; keep it that
-way unless you add auth.
+**No authentication.** The service trusts anything that can reach it. It binds
+to `127.0.0.1` by default; `DOCEXPORT_BIND_ADDR=0.0.0.0` in `.env` exposes it
+to the LAN, which is required for downloads to work from any machine other
+than the Docker host. Exposed, anyone on your network can convert documents
+and fetch any export whose id they know — ids are random UUIDs and files
+expire, but there is no login. Do not put it on an untrusted network.
 
 **Files are transient.** They live in the container and vanish on restart or
 after `RETENTION_SECONDS`. This is a conversion service, not storage.

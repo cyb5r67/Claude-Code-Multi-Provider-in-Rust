@@ -32,11 +32,16 @@ class Action:
             description="Sidecar address as seen from the Open WebUI container.",
         )
         public_base_url: str = Field(
-            default="http://localhost:8789",
+            default="",
             description=(
-                "Sidecar address as seen from your browser. Change this if you "
-                "open Open WebUI from another machine."
+                "Override the download-link base URL. Leave blank to derive it "
+                "from whatever address your browser used, which is what makes "
+                "links work from localhost and from the LAN alike."
             ),
+        )
+        public_port: int = Field(
+            default=8789,
+            description="Host port the sidecar is published on.",
         )
         formats: str = Field(
             default="docx,pdf",
@@ -55,6 +60,7 @@ class Action:
         __user__: Optional[dict] = None,
         __event_emitter__=None,
         __event_call__=None,
+        __request__=None,
         **kwargs,
     ) -> None:
         if __event_emitter__ is None:  # nothing to report progress to
@@ -85,11 +91,12 @@ class Action:
             await self._status(__event_emitter__, f"Export failed: {exc}", done=True)
             return
 
+        base = self._public_base(__request__)
         for fmt, result in zip(formats, results):
             if isinstance(result, Exception):
                 failures.append(f"{fmt}: {result}")
             else:
-                url = self.valves.public_base_url.rstrip("/") + result["path"]
+                url = base + result["path"]
                 size = self._human_size(result["bytes"])
                 links.append(f"[{result['filename']}]({url}) · {size}")
 
@@ -116,6 +123,24 @@ class Action:
                     detail = (await response.text())[:200]
                     raise RuntimeError(f"HTTP {response.status} {detail}")
                 return await response.json()
+
+    def _public_base(self, request) -> str:
+        """Base URL the *browser* should use for downloads.
+
+        The Action runs server-side, but the link is followed by the client,
+        so a hardcoded host breaks the moment anyone connects from another
+        machine. Deriving it from the request means one install works from
+        localhost, a LAN address, or a hostname without reconfiguration.
+        """
+        if self.valves.public_base_url.strip():
+            return self.valves.public_base_url.strip().rstrip("/")
+
+        host = ""
+        if request is not None:
+            headers = getattr(request, "headers", {}) or {}
+            host = headers.get("x-forwarded-host") or headers.get("host") or ""
+        host = host.split(",")[0].strip().split(":")[0] or "localhost"
+        return f"http://{host}:{self.valves.public_port}"
 
     @staticmethod
     def _message_content(body: dict) -> str:

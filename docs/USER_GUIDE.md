@@ -274,8 +274,10 @@ What comes up:
 | `prometheus`  | <http://localhost:9090> | Scrapes the proxy's `/metrics` every 15 s |
 | `grafana`     | <http://localhost:3001> | Dashboard over Prometheus (`admin` / `GRAFANA_ADMIN_PASSWORD`) |
 
-All ports are published to `127.0.0.1` only, so nothing is reachable from
-your network even though the proxy binds `0.0.0.0` inside its container.
+All ports are published to `127.0.0.1` by default, so nothing is reachable
+from your network even though the proxy binds `0.0.0.0` inside its container.
+To share the chat UI, see [Exposing the chat UI to your
+LAN](#exposing-the-chat-ui-to-your-lan).
 
 - **Config:** the container reads `docker/config.toml` (not the repo-root
   `config.toml`). Edit it, then `docker compose restart big-brother`.
@@ -300,6 +302,49 @@ your network even though the proxy binds `0.0.0.0` inside its container.
   from `docker/grafana/dashboards/big-brother.json` — edit the JSON and
   restart Grafana to change it. History lives in the `prometheus-data`
   volume (default retention).
+
+---
+
+## Exposing the chat UI to your LAN
+
+Two services can safely leave localhost; three must not.
+
+```ini
+# .env
+WEBUI_BIND_ADDR=0.0.0.0
+DOCEXPORT_BIND_ADDR=0.0.0.0
+```
+
+Then `docker compose up -d`. Open WebUI becomes reachable at
+`http://<host-ip>:3000` and document exports at `<host-ip>:8789`.
+
+**Export the sidecar too, or downloads break.** The export link is followed by
+the browser, not the server, so a client that isn't the Docker host cannot
+reach a localhost-bound sidecar. The Action derives the link from the address
+you browsed to, so no reconfiguration is needed once the port is published.
+
+**Never expose the proxy, Prometheus, or Grafana.** `big-brother` keeps
+`127.0.0.1` deliberately: its panel has no authentication and `PUT
+/chat/settings` lets any caller change routing and burn cloud budget. Open
+WebUI reaches the proxy over the internal Docker network, so nothing is lost
+by keeping it closed. Open WebUI is different — it has real accounts.
+
+**Windows hosts need a firewall rule.** Docker publishing a port is not
+enough; the Windows Firewall drops inbound connections by default, which looks
+like a hang rather than a refusal. From an elevated PowerShell:
+
+```powershell
+New-NetFirewallRule -DisplayName "Big Brother chat (LAN)" -Direction Inbound `
+  -Action Allow -Protocol TCP -LocalPort 3000,8789 -RemoteAddress LocalSubnet
+```
+
+`-RemoteAddress LocalSubnet` keeps the opening to your own network.
+
+**Before you share the URL**, check three things: new sign-ups are disabled
+(Admin Panel → Settings → General) unless you want anyone on the network
+creating accounts; the connection is plain HTTP, so passwords cross the LAN in
+clear text; and the exports sidecar has no login at all, so anyone who can
+reach it can convert documents.
 
 ---
 

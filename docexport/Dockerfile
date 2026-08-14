@@ -31,7 +31,7 @@ COPY app.py pdf.css ./
 FROM base AS test
 COPY requirements-dev.txt .
 RUN pip install --no-cache-dir -r requirements-dev.txt
-COPY test_app.py .
+COPY test_app.py test_action.py openwebui_action.py ./
 CMD ["pytest", "-q"]
 
 FROM base AS runtime
